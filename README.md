@@ -54,7 +54,17 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 1 (this commit): scaffolding only. The crate dlopens `libcuda.so.1` + `libnvcuvid.so.1` + `libnvidia-encode.so.1`, resolves the bootstrap symbol set on each, and exposes a `register(&mut RuntimeContext)` entry point that confirms the framework loads without registering any codec factories yet. Round 2: H.264 + HEVC decode via NVDEC.
+Round 2 (this commit): the crate now exposes safe wrappers around the CUDA driver init + device enumeration, plus an NVDEC capability query.
+
+- `Cuda::init()` runs `cuInit(0)` once and returns a handle.
+- `Cuda::device_count()` + `Cuda::device(ordinal)` enumerate GPUs.
+- `CudaDevice::{name, total_memory_bytes, compute_capability}` cover the basic device introspection surface.
+- `Cuda::create_context_for(&device)` builds a `CudaContext` that pushes itself current on construction and `cuCtxDestroy_v2`s on Drop.
+- `nvdec_caps(codec, chroma, bit_depth)` calls `cuvidGetDecoderCaps` and returns a public `NvdecCaps` struct (codec / chroma / bit depth + `is_supported` + `max_width` / `max_height` / `max_mb_count` etc.).
+
+`tests/round2_init.rs` exercises the full path on real NVIDIA hardware: `cuInit` → `cuDeviceGet` → `cuDeviceGetName` / `cuDeviceTotalMem_v2` / `cuDeviceGetAttribute` → `cuCtxCreate_v2` → `cuvidGetDecoderCaps`. Each test detects "no driver / no GPU" and skips with `eprintln!` rather than panicking, so the suite passes on a Linux box with an NVIDIA GPU and skips cleanly on every other host.
+
+`register()` is still a no-op-with-log in Round 2 — the codec / encoder / decoder trait factories are scoped for Round 3.
 
 ## Workspace policy
 

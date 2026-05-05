@@ -47,6 +47,81 @@ pub const CUDA_SUCCESS: CUresult = 0;
 /// CUdevice — 32-bit ordinal returned by `cuDeviceGet`.
 pub type CUdevice = i32;
 
+/// `CUdevice_attribute` value for "compute capability major version".
+/// Vendor-supplied constant from `<cuda.h>`.
+pub const CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR: i32 = 75;
+/// `CUdevice_attribute` value for "compute capability minor version".
+/// Vendor-supplied constant from `<cuda.h>`.
+pub const CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR: i32 = 76;
+
+// ─────────────────────────── cudaVideoCodec / cudaVideoChromaFormat ──────────
+
+/// `cudaVideoCodec` enum from the NVIDIA Video Codec SDK
+/// (`<cuviddec.h>`). Numeric values are part of the public ABI.
+#[repr(i32)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CudaVideoCodec {
+    Mpeg1 = 0,
+    Mpeg2 = 1,
+    Mpeg4 = 2,
+    Vc1 = 3,
+    H264 = 4,
+    Jpeg = 5,
+    H264Svc = 6,
+    H264Mvc = 7,
+    Hevc = 8,
+    Vp8 = 9,
+    Vp9 = 10,
+    Av1 = 11,
+}
+
+/// `cudaVideoChromaFormat` enum from `<cuviddec.h>`.
+pub const CUDA_VIDEO_CHROMA_FORMAT_MONOCHROME: u32 = 0;
+pub const CUDA_VIDEO_CHROMA_FORMAT_420: u32 = 1;
+pub const CUDA_VIDEO_CHROMA_FORMAT_422: u32 = 2;
+pub const CUDA_VIDEO_CHROMA_FORMAT_444: u32 = 3;
+
+/// Public layout of `CUVIDDECODECAPS` from `<cuviddec.h>`.
+///
+/// Layout (bytes 0..76, total 80 with the trailing 10×u32 reserved):
+/// - eCodecType:          i32 (4)
+/// - eChromaFormat:       i32 (4)
+/// - nBitDepthMinus8:     u32 (4)
+/// - reserved1[3]:        3×u32 (12)
+/// - bIsSupported:        u8 (1)
+/// - nNumNVDECs:          u8 (1)
+/// - nOutputFormatMask:   u16 (2)
+/// - nMaxWidth:           u32 (4)
+/// - nMaxHeight:          u32 (4)
+/// - nMaxMBCount:         u32 (4)
+/// - nMinWidth:           u16 (2)
+/// - nMinHeight:          u16 (2)
+/// - bIsHistogramSupported: u8 (1)
+/// - nCounterBitDepth:    u8 (1)
+/// - nMaxHistogramBins:   u16 (2)
+/// - reserved3[10]:       10×u32 (40)
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct CUVIDDECODECAPS {
+    pub e_codec_type: i32,
+    pub e_chroma_format: i32,
+    pub n_bit_depth_minus_8: u32,
+    pub reserved1: [u32; 3],
+
+    pub b_is_supported: u8,
+    pub n_num_nvdecs: u8,
+    pub n_output_format_mask: u16,
+    pub n_max_width: u32,
+    pub n_max_height: u32,
+    pub n_max_mb_count: u32,
+    pub n_min_width: u16,
+    pub n_min_height: u16,
+    pub b_is_histogram_supported: u8,
+    pub n_counter_bit_depth: u8,
+    pub n_max_histogram_bins: u16,
+    pub reserved3: [u32; 10],
+}
+
 // ─────────────────────────── opaque NVDEC types ──────────────────────────────
 
 /// NVDEC video decoder handle.
@@ -81,6 +156,20 @@ pub type FnCuMemFreeV2 = unsafe extern "C" fn(dptr: CUdeviceptr) -> CUresult;
 pub type FnCuGetErrorString =
     unsafe extern "C" fn(error: CUresult, str_out: *mut *const c_char) -> CUresult;
 
+pub type FnCuDeviceGetName =
+    unsafe extern "C" fn(name: *mut c_char, len: i32, dev: CUdevice) -> CUresult;
+
+pub type FnCuDriverGetVersion = unsafe extern "C" fn(version_out: *mut i32) -> CUresult;
+
+pub type FnCuDeviceTotalMemV2 =
+    unsafe extern "C" fn(bytes_out: *mut usize, dev: CUdevice) -> CUresult;
+
+pub type FnCuDeviceGetAttribute =
+    unsafe extern "C" fn(value_out: *mut i32, attrib: i32, dev: CUdevice) -> CUresult;
+
+pub type FnCuCtxPushCurrentV2 = unsafe extern "C" fn(ctx: CUcontext) -> CUresult;
+pub type FnCuCtxPopCurrentV2 = unsafe extern "C" fn(ctx_out: *mut CUcontext) -> CUresult;
+
 // libnvcuvid (NVDEC)
 //
 // The full NVDEC structures (`CUVIDDECODECREATEINFO`, `CUVIDPICPARAMS`,
@@ -109,7 +198,8 @@ pub type FnCuvidMapVideoFrame64 = unsafe extern "C" fn(
 pub type FnCuvidUnmapVideoFrame64 =
     unsafe extern "C" fn(decoder: CUvideodecoder, dev_ptr: u64) -> CUresult;
 
-pub type FnCuvidGetDecoderCaps = unsafe extern "C" fn(decoder_caps: *mut c_void) -> CUresult;
+pub type FnCuvidGetDecoderCaps =
+    unsafe extern "C" fn(decoder_caps: *mut CUVIDDECODECAPS) -> CUresult;
 
 // libnvidia-encode (NVENC)
 //
@@ -136,6 +226,12 @@ pub struct Vtable {
     pub cu_mem_alloc_v2: FnCuMemAllocV2,
     pub cu_mem_free_v2: FnCuMemFreeV2,
     pub cu_get_error_string: FnCuGetErrorString,
+    pub cu_device_get_name: FnCuDeviceGetName,
+    pub cu_driver_get_version: FnCuDriverGetVersion,
+    pub cu_device_total_mem_v2: FnCuDeviceTotalMemV2,
+    pub cu_device_get_attribute: FnCuDeviceGetAttribute,
+    pub cu_ctx_push_current_v2: FnCuCtxPushCurrentV2,
+    pub cu_ctx_pop_current_v2: FnCuCtxPopCurrentV2,
     // libnvcuvid (NVDEC)
     pub cuvid_create_decoder: FnCuvidCreateDecoder,
     pub cuvid_destroy_decoder: FnCuvidDestroyDecoder,
@@ -215,6 +311,12 @@ fn load_vtable() -> Result<Vtable, String> {
         cu_mem_alloc_v2: sym!(libcuda, "cuMemAlloc_v2", FnCuMemAllocV2),
         cu_mem_free_v2: sym!(libcuda, "cuMemFree_v2", FnCuMemFreeV2),
         cu_get_error_string: sym!(libcuda, "cuGetErrorString", FnCuGetErrorString),
+        cu_device_get_name: sym!(libcuda, "cuDeviceGetName", FnCuDeviceGetName),
+        cu_driver_get_version: sym!(libcuda, "cuDriverGetVersion", FnCuDriverGetVersion),
+        cu_device_total_mem_v2: sym!(libcuda, "cuDeviceTotalMem_v2", FnCuDeviceTotalMemV2),
+        cu_device_get_attribute: sym!(libcuda, "cuDeviceGetAttribute", FnCuDeviceGetAttribute),
+        cu_ctx_push_current_v2: sym!(libcuda, "cuCtxPushCurrent_v2", FnCuCtxPushCurrentV2),
+        cu_ctx_pop_current_v2: sym!(libcuda, "cuCtxPopCurrent_v2", FnCuCtxPopCurrentV2),
         cuvid_create_decoder: sym!(libnvcuvid, "cuvidCreateDecoder", FnCuvidCreateDecoder),
         cuvid_destroy_decoder: sym!(
             libnvcuvid,

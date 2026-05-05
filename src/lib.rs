@@ -24,10 +24,18 @@
 //!
 //! # Status
 //!
-//! Round 1 (this commit): scaffolding only. The framework load is
-//! verified via `sys::framework()`; no codec factories are wired up
-//! yet. Round 2 will add H.264 + HEVC decode via NVDEC's
-//! `cuvidCreateDecoder` + `cuvidDecodePicture`.
+//! Round 2 (this commit): in addition to the Round 1 scaffolding the
+//! crate now exposes safe wrappers for CUDA driver init + device
+//! enumeration ([`device::Cuda`], [`device::CudaDevice`],
+//! [`device::CudaContext`]), and an NVDEC capability query
+//! ([`nvdec::nvdec_caps`]). On a host with the NVIDIA driver and at
+//! least one supported GPU, `tests/round2_init.rs` end-to-end calls
+//! `cuInit` → `cuDeviceGet` → `cuCtxCreate_v2` → `cuvidGetDecoderCaps`
+//! and asserts the H.264 / 4:2:0 / 8-bit combo is reported supported.
+//!
+//! Round 3 will wire up the NVDEC + NVENC `Decoder` / `Encoder` trait
+//! factories so the crate plugs into the framework registry like
+//! `oxideav-videotoolbox` does.
 //!
 //! # Workspace policy
 //!
@@ -36,7 +44,13 @@
 //! algorithm. The workspace's clean-room rule (no embedding source
 //! from libvpx, libwebp, libjxl, etc.) doesn't apply here.
 
+pub mod device;
+pub mod nvdec;
 pub mod sys;
+
+pub use device::{Cuda, CudaContext, CudaDevice, NvError};
+pub use nvdec::{nvdec_caps, NvdecCaps};
+pub use sys::CudaVideoCodec;
 
 /// Confirm the NVIDIA framework loads, but do not register any codec
 /// factories yet (Round 1 scaffolding).

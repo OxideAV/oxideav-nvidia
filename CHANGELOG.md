@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 2
+
+- New module `device` with safe CUDA wrappers:
+  - `Cuda::init()` runs `cuInit(0)` once per process via `OnceLock`
+    and returns a zero-sized handle that proves the driver is up.
+  - `Cuda::device_count()` / `Cuda::device(ordinal)` for enumeration.
+  - `CudaDevice::name()` (uses `cuDeviceGetName`, 256-byte buffer),
+    `CudaDevice::total_memory_bytes()` (uses `cuDeviceTotalMem_v2`),
+    and `CudaDevice::compute_capability()` (uses `cuDeviceGetAttribute`
+    with `CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR/MINOR = 75/76`).
+  - `Cuda::create_context_for(&CudaDevice)` returning a `CudaContext`
+    that owns the `CUcontext` and calls `cuCtxDestroy_v2` on Drop.
+  - `NvError` wraps `CUresult` and lazily resolves the error message
+    via `cuGetErrorString`. `is_unavailable()` distinguishes
+    "no driver / no GPU / no `--gpus all`" from real failures so tests
+    can skip cleanly.
+- New module `nvdec` with `nvdec_caps(codec, chroma, bit_depth)` calling
+  `cuvidGetDecoderCaps`. Returns a public `NvdecCaps` struct mirroring
+  the *out* fields of `CUVIDDECODECAPS`
+  (`is_supported`, `num_nvdecs`, `output_format_mask`, `max_width`,
+  `max_height`, `max_mb_count`, `min_width`, `min_height`,
+  `is_histogram_supported`, `counter_bit_depth`, `max_histogram_bins`).
+- New `CudaVideoCodec` enum (`Mpeg1=0`, `Mpeg2=1`, …, `H264=4`,
+  `Hevc=8`, `Vp9=10`, `Av1=11`) and `cudaVideoChromaFormat` constants
+  (`420=1`, `422=2`, `444=3`, `Monochrome=0`).
+- New `CUVIDDECODECAPS` `#[repr(C)]` struct mirroring the public
+  vendor-supplied layout from `<cuviddec.h>`.
+- New libcuda symbols in `sys::Vtable`: `cuDeviceGetName`,
+  `cuDriverGetVersion`, `cuDeviceTotalMem_v2`, `cuDeviceGetAttribute`,
+  `cuCtxPushCurrent_v2`, `cuCtxPopCurrent_v2`.
+- `cuvid_get_decoder_caps` retyped from `*mut c_void` to
+  `*mut CUVIDDECODECAPS` for sounder callers.
+- Integration test `tests/round2_init.rs` with five skip-friendly
+  tests:
+  - `cuda_init_succeeds`
+  - `lists_at_least_one_device`
+  - `device_zero_reports_name_and_memory` (>1 GiB)
+  - `device_zero_reports_compute_capability` (major >= 5)
+  - `nvdec_h264_supported_on_device_zero` (asserts H.264 / 4:2:0 /
+    8-bit is supported, max ≥ 1920×1080)
+  Each test detects "CUDA driver / GPU not available" and `eprintln!`s
+  + `return`s rather than panicking, so the suite passes on the
+  developer's RTX 5080 box and skips cleanly elsewhere.
+- `lib.rs` re-exports `Cuda`, `CudaDevice`, `CudaContext`, `NvError`,
+  `NvdecCaps`, `nvdec_caps`, `CudaVideoCodec`.
+
 ### Added
 
 - Initial scaffolding: `#![cfg(target_os = "linux")]` crate that
