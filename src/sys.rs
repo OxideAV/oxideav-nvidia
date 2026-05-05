@@ -906,13 +906,13 @@ pub struct NvEncodeApiFunctionList {
     pub version: u32,                                                  // 0
     pub reserved: u32,                                                 // 4
     pub nv_enc_open_encode_session: *mut c_void,                       // 8 (unused)
-    pub nv_enc_get_encode_guid_count: *mut c_void,                     // 16 (unused)
+    pub nv_enc_get_encode_guid_count: PfnNvEncGetEncodeGuidCount,      // 16
     pub nv_enc_get_encode_profile_guid_count: *mut c_void,             // 24 (unused)
     pub nv_enc_get_encode_profile_guids: *mut c_void,                  // 32 (unused)
-    pub nv_enc_get_encode_guids: *mut c_void,                          // 40 (unused)
+    pub nv_enc_get_encode_guids: PfnNvEncGetEncodeGuids,               // 40
     pub nv_enc_get_input_format_count: *mut c_void,                    // 48 (unused)
     pub nv_enc_get_input_formats: *mut c_void,                         // 56 (unused)
-    pub nv_enc_get_encode_caps: *mut c_void,                           // 64 (unused)
+    pub nv_enc_get_encode_caps: PfnNvEncGetEncodeCaps,                 // 64
     pub nv_enc_get_encode_preset_count: *mut c_void,                   // 72 (unused)
     pub nv_enc_get_encode_preset_guids: *mut c_void,                   // 80 (unused)
     pub nv_enc_get_encode_preset_config: *mut c_void,                  // 88 (unused)
@@ -1024,6 +1024,75 @@ pub type PfnNvEncDestroyEncoder =
 pub type PfnNvEncGetLastErrorString =
     Option<unsafe extern "C" fn(encoder: *mut c_void) -> *const c_char>;
 
+// ─── NVENC capability-query function pointers ──────────────────────────────
+//
+// These are part of the same `NV_ENCODE_API_FUNCTION_LIST` populated by
+// `NvEncodeAPICreateInstance`. We type them to talk through the encode-
+// session pointer returned by `nvEncOpenEncodeSessionEx` to enumerate
+// the codec GUIDs the hardware supports plus per-codec dimension /
+// bit-depth caps.
+
+/// `NvEncGetEncodeGUIDCount` — writes into `*encode_guid_count` the
+/// number of codec GUIDs the encoder session can encode to.
+pub type PfnNvEncGetEncodeGuidCount = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, encode_guid_count: *mut u32) -> NvEncStatus,
+>;
+
+/// `NvEncGetEncodeGUIDs` — fills `guids` (capacity `guid_array_size`) with
+/// the codec GUIDs the session can encode to. Sets `*guid_count` to the
+/// number written.
+pub type PfnNvEncGetEncodeGuids = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        guids: *mut Guid,
+        guid_array_size: u32,
+        guid_count: *mut u32,
+    ) -> NvEncStatus,
+>;
+
+/// `NvEncGetEncodeCaps` — query a single capability for `(encode_guid)`.
+pub type PfnNvEncGetEncodeCaps = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        encode_guid: Guid,
+        caps_param: *mut NvEncCapsParam,
+        caps_val: *mut i32,
+    ) -> NvEncStatus,
+>;
+
+/// `NV_ENC_CAPS_PARAM` — sizeof = 256. Input parameter to
+/// `nvEncGetEncodeCaps`.
+///
+/// Layout per `<nvEncodeAPI.h>`:
+/// - 0: version (u32)
+/// - 4: capsToQuery (u32 enum NV_ENC_CAPS)
+/// - 8: reserved[62] (248 bytes)
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct NvEncCapsParam {
+    pub version: u32,
+    pub caps_to_query: u32,
+    pub reserved: [u32; 62],
+}
+
+impl Default for NvEncCapsParam {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_CAPS_PARAM_VER = NVENCAPI_STRUCT_VERSION(1)`.
+pub const NV_ENC_CAPS_PARAM_VER: u32 = nvenc_struct_ver(1);
+
+// ─── NV_ENC_CAPS enum values (zero-indexed in declaration order) ─────────────
+
+/// `NV_ENC_CAPS_WIDTH_MAX` — max coded width (= 16th member of the enum).
+pub const NV_ENC_CAPS_WIDTH_MAX: u32 = 16;
+/// `NV_ENC_CAPS_HEIGHT_MAX` — max coded height (17th member).
+pub const NV_ENC_CAPS_HEIGHT_MAX: u32 = 17;
+/// `NV_ENC_CAPS_SUPPORT_10BIT_ENCODE` — 1 if 10-bit input supported.
+pub const NV_ENC_CAPS_SUPPORT_10BIT_ENCODE: u32 = 39;
+
 // ─────────────────────────── compile-time size guards ───────────────────────
 
 // Layout sanity — these are the sizes a C compiler emits for the
@@ -1084,6 +1153,9 @@ const _: () = {
     }
     if std::mem::size_of::<NvEncPicParams>() != 3360 {
         panic!("NvEncPicParams layout drift");
+    }
+    if std::mem::size_of::<NvEncCapsParam>() != 256 {
+        panic!("NvEncCapsParam layout drift");
     }
 };
 

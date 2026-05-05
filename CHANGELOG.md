@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 6
+
+- New module `engine` (gated behind the default-on `registry` feature)
+  shipping `pub fn engine_info() -> Vec<HwDeviceInfo>` per the Phase-1
+  contract in `oxideav_core::engine`. The probe:
+  - calls `Cuda::init()` and walks every visible device ordinal;
+  - reports `name` (from `cuDeviceGetName`),
+    `total_memory_bytes` (from `cuDeviceTotalMem_v2`),
+    `driver_version` / `api_version` (from `cuDriverGetVersion`,
+    decoded as `1000*major + 10*minor` → `"13.0"` / `"CUDA 13.0"`),
+    and the `("compute_capability", "<major>.<minor>")` extra;
+  - probes NVDEC decode caps via `cuvidGetDecoderCaps` (4:2:0, 8-bit,
+    plus a 10-bit retry to widen `max_bit_depth`) for H.264, HEVC,
+    AV1, VP9, VP8, MPEG-2, and surfaces `max_width` / `max_height` /
+    `max_mb_count` / `num_nvdecs`;
+  - probes NVENC encode caps via a throwaway encode session opened
+    with `nvEncOpenEncodeSessionEx`. Enumerates supported codec
+    GUIDs through `nvEncGetEncodeGUIDCount` + `nvEncGetEncodeGUIDs`
+    and queries `NV_ENC_CAPS_WIDTH_MAX`, `NV_ENC_CAPS_HEIGHT_MAX`,
+    and `NV_ENC_CAPS_SUPPORT_10BIT_ENCODE` per matching codec via
+    `nvEncGetEncodeCaps`. The session is destroyed via
+    `nvEncDestroyEncoder` regardless of which step failed
+    (RAII `SessionGuard`).
+  - Skip-friendly: every error path returns `vec![]` (or leaves a
+    codec entry's encode flag as `false`); the function never
+    panics.
+- New `sys` types and constants for the NVENC capability query path:
+  - `NvEncCapsParam` (256-byte input struct), `NV_ENC_CAPS_PARAM_VER`,
+    and the `NV_ENC_CAPS_WIDTH_MAX = 16` / `HEIGHT_MAX = 17` /
+    `SUPPORT_10BIT_ENCODE = 39` enum constants (zero-indexed in
+    `NV_ENC_CAPS` declaration order).
+  - Typed function pointer aliases `PfnNvEncGetEncodeGuidCount`,
+    `PfnNvEncGetEncodeGuids`, `PfnNvEncGetEncodeCaps`, retyped over
+    the previously-`*mut c_void`-typed slots in
+    `NvEncodeApiFunctionList` (offsets 16, 40, 64).
+  - Compile-time size guard for `NvEncCapsParam` (256 bytes).
+- `register()` now chains `.with_engine_id("nvidia")` and
+  `.with_engine_probe(engine::engine_info)` on every `CodecInfo` it
+  registers — H.264 / HEVC / AV1 NVDEC decoders and H.264 / HEVC
+  NVENC encoders. Consumers that walk the registry and group by
+  `engine_id` will see one `"nvidia"` group and call `engine_info`
+  exactly once per pass.
+- New integration test `tests/round6_engine_info.rs`:
+  - `engine_info_smoke_does_not_panic` — universal: even on a host
+    with no NVIDIA driver, `engine_info()` returns `vec![]` rather
+    than panicking.
+  - `engine_info_finds_rtx_5080_or_skips` — on a CUDA-capable host
+    asserts a non-empty device name, populated `total_memory_bytes`
+    + `driver_version` + `api_version` (prefix `"CUDA "`), the
+    `compute_capability` extra is present, and the H.264 row is
+    present with `decode = true` + `max_width >= 1920`.
+  - `engine_info_reports_modern_codecs_or_skips` — exercises the
+    full probe + asserts every reported `codec` id is one of the
+    six we enumerate.
+  Each test skips with `eprintln!` on no-GPU hosts.
+- Public re-export `pub use engine::engine_info` (gated behind
+  `registry`).
+
 ### Added — Round 4
 
 - `decoder::H264NvDecoder` is now a thin wrapper around a new generic

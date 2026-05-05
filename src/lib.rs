@@ -64,6 +64,9 @@ pub mod decoder;
 #[cfg(feature = "registry")]
 pub mod encoder;
 
+#[cfg(feature = "registry")]
+pub mod engine;
+
 pub use device::{Cuda, CudaContext, CudaDevice, NvError};
 pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
@@ -73,6 +76,9 @@ pub use decoder::{Av1NvDecoder, H264NvDecoder, HevcNvDecoder, NvDecoder};
 
 #[cfg(feature = "registry")]
 pub use encoder::{H264NvEncoder, HevcNvEncoder, NvEncoder};
+
+#[cfg(feature = "registry")]
+pub use engine::engine_info;
 
 /// Register the NVDEC and NVENC factories with the codec registry.
 ///
@@ -121,7 +127,9 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"avc1"),
                 CodecTag::fourcc(b"X264"),
                 CodecTag::matroska("V_MPEG4/ISO/AVC"),
-            ]),
+            ])
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
     );
 
     // ── H.264 encoder via NVENC ────────────────────────────────────────────
@@ -135,7 +143,9 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                     .with_priority(5)
                     .with_encode(),
             )
-            .encoder(encoder::H264NvEncoder::make),
+            .encoder(encoder::H264NvEncoder::make)
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
     );
 
     // ── HEVC decoder via NVDEC ─────────────────────────────────────────────
@@ -155,7 +165,9 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"HEVC"),
                 CodecTag::fourcc(b"H265"),
                 CodecTag::matroska("V_MPEGH/ISO/HEVC"),
-            ]),
+            ])
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
     );
 
     // ── HEVC encoder via NVENC ─────────────────────────────────────────────
@@ -169,7 +181,9 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                     .with_priority(5)
                     .with_encode(),
             )
-            .encoder(encoder::HevcNvEncoder::make),
+            .encoder(encoder::HevcNvEncoder::make)
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
     );
 
     // ── AV1 decoder via NVDEC (Blackwell+) ─────────────────────────────────
@@ -187,7 +201,9 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"AV01"),
                 CodecTag::fourcc(b"av01"),
                 CodecTag::matroska("V_AV1"),
-            ]),
+            ])
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
     );
 }
 
