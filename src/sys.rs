@@ -130,6 +130,250 @@ pub type CUvideodecoder = *mut c_void;
 /// NVDEC video context lock.
 pub type CUvideoctxlock = *mut c_void;
 
+/// NVDEC bitstream parser handle.
+pub type CUvideoparser = *mut c_void;
+
+/// CUvideotimestamp = `long long` per `<nvcuvid.h>`.
+pub type CUvideotimestamp = i64;
+
+// ─────────────────────────── packet flags / chroma constants ─────────────────
+
+pub const CUVID_PKT_ENDOFSTREAM: u32 = 0x01;
+pub const CUVID_PKT_TIMESTAMP: u32 = 0x02;
+pub const CUVID_PKT_DISCONTINUITY: u32 = 0x04;
+pub const CUVID_PKT_ENDOFPICTURE: u32 = 0x08;
+
+/// `cudaVideoCreateFlags_PreferCUVID` — dedicated NVDEC engine path.
+pub const CUDA_VIDEO_CREATE_PREFER_CUVID: u32 = 0x04;
+
+/// `cudaVideoSurfaceFormat_NV12` — Y plane + interleaved UV.
+pub const CUDA_VIDEO_SURFACE_FORMAT_NV12: i32 = 0;
+
+/// `cudaVideoDeinterlaceMode_Weave` — pass-through (progressive).
+pub const CUDA_VIDEO_DEINTERLACE_WEAVE: i32 = 0;
+
+// ─────────────────────────── CUVIDEOFORMAT ───────────────────────────────────
+
+/// Layout of `CUVIDEOFORMAT` from `<nvcuvid.h>`.
+///
+/// Total size 64 bytes on x86_64 Linux. The struct mixes packed
+/// `unsigned char` flag bytes with 32-bit ints so we list the exact
+/// layout as commented offsets.
+///
+/// Offsets (verified against the vendor header):
+/// - 0:  codec               (i32)
+/// - 4:  frame_rate.numerator   (u32)
+/// - 8:  frame_rate.denominator (u32)
+/// - 12: progressive_sequence  (u8)
+/// - 13: bit_depth_luma_minus8 (u8)
+/// - 14: bit_depth_chroma_minus8 (u8)
+/// - 15: min_num_decode_surfaces (u8)
+/// - 16: coded_width  (u32)
+/// - 20: coded_height (u32)
+/// - 24: display_area.left   (i32)
+/// - 28: display_area.top    (i32)
+/// - 32: display_area.right  (i32)
+/// - 36: display_area.bottom (i32)
+/// - 40: chroma_format (i32)
+/// - 44: bitrate (u32)
+/// - 48: display_aspect_ratio.x (i32)
+/// - 52: display_aspect_ratio.y (i32)
+/// - 56: video_signal_description (4 bytes packed)
+/// - 60: seqhdr_data_length (u32)
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct CUVIDEOFORMAT {
+    pub codec: i32,
+    pub frame_rate_numerator: u32,
+    pub frame_rate_denominator: u32,
+    pub progressive_sequence: u8,
+    pub bit_depth_luma_minus8: u8,
+    pub bit_depth_chroma_minus8: u8,
+    pub min_num_decode_surfaces: u8,
+    pub coded_width: u32,
+    pub coded_height: u32,
+    pub display_left: i32,
+    pub display_top: i32,
+    pub display_right: i32,
+    pub display_bottom: i32,
+    pub chroma_format: i32,
+    pub bitrate: u32,
+    pub display_aspect_x: i32,
+    pub display_aspect_y: i32,
+    pub video_signal_description: [u8; 4],
+    pub seqhdr_data_length: u32,
+}
+
+// ─────────────────────────── CUVIDDECODECREATEINFO ───────────────────────────
+
+/// Layout of `CUVIDDECODECREATEINFO` from `<cuviddec.h>`.
+///
+/// Total size 176 bytes on x86_64 Linux (`tcu_ulong = unsigned long =
+/// 8 bytes`). The trailing reserved area pads out to that size.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct CUVIDDECODECREATEINFO {
+    pub ul_width: u64,
+    pub ul_height: u64,
+    pub ul_num_decode_surfaces: u64,
+    pub codec_type: i32,
+    pub chroma_format: i32,
+    pub ul_creation_flags: u64,
+    pub bit_depth_minus_8: u64,
+    pub ul_intra_decode_only: u64,
+    pub ul_max_width: u64,
+    pub ul_max_height: u64,
+    pub reserved1: u64,
+    pub display_left: i16,
+    pub display_top: i16,
+    pub display_right: i16,
+    pub display_bottom: i16,
+    pub output_format: i32,
+    pub deinterlace_mode: i32,
+    pub ul_target_width: u64,
+    pub ul_target_height: u64,
+    pub ul_num_output_surfaces: u64,
+    pub vid_lock: CUvideoctxlock,
+    pub target_left: i16,
+    pub target_top: i16,
+    pub target_right: i16,
+    pub target_bottom: i16,
+    pub enable_histogram: u64,
+    pub reserved2: [u64; 4],
+}
+
+impl Default for CUVIDDECODECREATEINFO {
+    fn default() -> Self {
+        // SAFETY: the struct is plain-data; zeroing is a valid initial state.
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+// ─────────────────────────── CUVIDPICPARAMS ──────────────────────────────────
+
+/// Size of `CUVIDPICPARAMS` (verified via the vendor header). The
+/// struct is huge and codec-specific; we treat it as an opaque blob —
+/// the parser fills it in via the decode callback and we hand the same
+/// pointer straight to `cuvidDecodePicture`. We never construct one
+/// from Rust.
+pub const CUVIDPICPARAMS_SIZE: usize = 4280;
+
+/// Opaque alias for `CUVIDPICPARAMS`.
+pub type CUVIDPICPARAMS = [u8; CUVIDPICPARAMS_SIZE];
+
+// ─────────────────────────── CUVIDPROCPARAMS ─────────────────────────────────
+
+/// Layout of `CUVIDPROCPARAMS` from `<cuviddec.h>`.
+///
+/// Used to map a decoded frame for display. Total 264 bytes.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct CUVIDPROCPARAMS {
+    pub progressive_frame: i32,
+    pub second_field: i32,
+    pub top_field_first: i32,
+    pub unpaired_field: i32,
+    pub reserved_flags: u32,
+    pub reserved_zero: u32,
+    pub raw_input_dptr: u64,
+    pub raw_input_pitch: u32,
+    pub raw_input_format: u32,
+    pub raw_output_dptr: u64,
+    pub raw_output_pitch: u32,
+    pub reserved1: u32,
+    pub output_stream: CUstream,
+    pub reserved: [u32; 46],
+    pub histogram_dptr: *mut u64,
+    pub reserved2: [*mut c_void; 1],
+}
+
+impl Default for CUVIDPROCPARAMS {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+// ─────────────────────────── CUVIDPARSERDISPINFO ─────────────────────────────
+
+/// `CUVIDPARSERDISPINFO` — passed to the display callback.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default)]
+pub struct CUVIDPARSERDISPINFO {
+    pub picture_index: i32,
+    pub progressive_frame: i32,
+    pub top_field_first: i32,
+    pub repeat_first_field: i32,
+    pub timestamp: CUvideotimestamp,
+}
+
+// ─────────────────────────── CUVIDSOURCEDATAPACKET ───────────────────────────
+
+/// `CUVIDSOURCEDATAPACKET` — the payload handed to `cuvidParseVideoData`.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct CUVIDSOURCEDATAPACKET {
+    pub flags: u64,
+    pub payload_size: u64,
+    pub payload: *const u8,
+    pub timestamp: CUvideotimestamp,
+}
+
+impl Default for CUVIDSOURCEDATAPACKET {
+    fn default() -> Self {
+        Self {
+            flags: 0,
+            payload_size: 0,
+            payload: std::ptr::null(),
+            timestamp: 0,
+        }
+    }
+}
+
+// ─────────────────────────── parser callback typedefs ────────────────────────
+
+pub type PfnVidSequenceCallback =
+    unsafe extern "C" fn(user_data: *mut c_void, fmt: *mut CUVIDEOFORMAT) -> i32;
+
+pub type PfnVidDecodeCallback =
+    unsafe extern "C" fn(user_data: *mut c_void, pic: *mut CUVIDPICPARAMS) -> i32;
+
+pub type PfnVidDisplayCallback =
+    unsafe extern "C" fn(user_data: *mut c_void, disp: *mut CUVIDPARSERDISPINFO) -> i32;
+
+pub type PfnVidOpPointCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32;
+
+pub type PfnVidSeiMsgCallback = unsafe extern "C" fn(*mut c_void, *mut c_void) -> i32;
+
+// ─────────────────────────── CUVIDPARSERPARAMS ───────────────────────────────
+
+/// `CUVIDPARSERPARAMS` from `<nvcuvid.h>`. Total 136 bytes.
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct CUVIDPARSERPARAMS {
+    pub codec_type: i32,
+    pub ul_max_num_decode_surfaces: u32,
+    pub ul_clock_rate: u32,
+    pub ul_error_threshold: u32,
+    pub ul_max_display_delay: u32,
+    /// `bAnnexb : 1` + `uReserved : 31` packed into one u32.
+    pub flags: u32,
+    pub u_reserved1: [u32; 4],
+    pub user_data: *mut c_void,
+    pub pfn_sequence_callback: Option<PfnVidSequenceCallback>,
+    pub pfn_decode_picture: Option<PfnVidDecodeCallback>,
+    pub pfn_display_picture: Option<PfnVidDisplayCallback>,
+    pub pfn_get_operating_point: Option<PfnVidOpPointCallback>,
+    pub pfn_get_sei_msg: Option<PfnVidSeiMsgCallback>,
+    pub pv_reserved2: [*mut c_void; 5],
+    pub p_ext_video_info: *mut c_void,
+}
+
+impl Default for CUVIDPARSERPARAMS {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
 // ─────────────────────────── function pointer types ──────────────────────────
 
 // libcuda
@@ -201,6 +445,24 @@ pub type FnCuvidUnmapVideoFrame64 =
 pub type FnCuvidGetDecoderCaps =
     unsafe extern "C" fn(decoder_caps: *mut CUVIDDECODECAPS) -> CUresult;
 
+pub type FnCuvidCreateVideoParser = unsafe extern "C" fn(
+    parser_out: *mut CUvideoparser,
+    params: *mut CUVIDPARSERPARAMS,
+) -> CUresult;
+
+pub type FnCuvidParseVideoData = unsafe extern "C" fn(
+    parser: CUvideoparser,
+    packet: *mut CUVIDSOURCEDATAPACKET,
+) -> CUresult;
+
+pub type FnCuvidDestroyVideoParser =
+    unsafe extern "C" fn(parser: CUvideoparser) -> CUresult;
+
+pub type FnCuMemcpyDtoHV2 =
+    unsafe extern "C" fn(dst: *mut c_void, src: CUdeviceptr, bytes: usize) -> CUresult;
+
+pub type FnCuStreamSynchronize = unsafe extern "C" fn(stream: CUstream) -> CUresult;
+
 // libnvidia-encode (NVENC)
 //
 // Only the single bootstrap entry. `NvEncodeAPICreateInstance` takes a
@@ -209,6 +471,36 @@ pub type FnCuvidGetDecoderCaps =
 // Round 2 will model the function-list struct and call this.
 pub type FnNvEncodeApiCreateInstance =
     unsafe extern "C" fn(function_list: *mut c_void) -> i32;
+
+// ─────────────────────────── compile-time size guards ───────────────────────
+
+// Layout sanity — these are the sizes a C compiler emits for the
+// vendor headers on x86_64 Linux. If the host C ABI deviates we'd
+// silently send the driver a struct of the wrong size; pinning the
+// sizes here turns that into a compile error instead.
+const _: () = {
+    if std::mem::size_of::<CUVIDEOFORMAT>() != 64 {
+        panic!("CUVIDEOFORMAT layout drift");
+    }
+    if std::mem::size_of::<CUVIDDECODECREATEINFO>() != 176 {
+        panic!("CUVIDDECODECREATEINFO layout drift");
+    }
+    if std::mem::size_of::<CUVIDPARSERPARAMS>() != 136 {
+        panic!("CUVIDPARSERPARAMS layout drift");
+    }
+    if std::mem::size_of::<CUVIDPROCPARAMS>() != 264 {
+        panic!("CUVIDPROCPARAMS layout drift");
+    }
+    if std::mem::size_of::<CUVIDPARSERDISPINFO>() != 24 {
+        panic!("CUVIDPARSERDISPINFO layout drift");
+    }
+    if std::mem::size_of::<CUVIDSOURCEDATAPACKET>() != 32 {
+        panic!("CUVIDSOURCEDATAPACKET layout drift");
+    }
+    if std::mem::size_of::<CUVIDDECODECAPS>() != 88 {
+        panic!("CUVIDDECODECAPS layout drift");
+    }
+};
 
 // ─────────────────────────── Vtable ───────────────────────────────────────────
 
@@ -232,6 +524,8 @@ pub struct Vtable {
     pub cu_device_get_attribute: FnCuDeviceGetAttribute,
     pub cu_ctx_push_current_v2: FnCuCtxPushCurrentV2,
     pub cu_ctx_pop_current_v2: FnCuCtxPopCurrentV2,
+    pub cu_memcpy_dto_h_v2: FnCuMemcpyDtoHV2,
+    pub cu_stream_synchronize: FnCuStreamSynchronize,
     // libnvcuvid (NVDEC)
     pub cuvid_create_decoder: FnCuvidCreateDecoder,
     pub cuvid_destroy_decoder: FnCuvidDestroyDecoder,
@@ -239,6 +533,9 @@ pub struct Vtable {
     pub cuvid_map_video_frame_64: FnCuvidMapVideoFrame64,
     pub cuvid_unmap_video_frame_64: FnCuvidUnmapVideoFrame64,
     pub cuvid_get_decoder_caps: FnCuvidGetDecoderCaps,
+    pub cuvid_create_video_parser: FnCuvidCreateVideoParser,
+    pub cuvid_parse_video_data: FnCuvidParseVideoData,
+    pub cuvid_destroy_video_parser: FnCuvidDestroyVideoParser,
     // libnvidia-encode (NVENC)
     pub nv_encode_api_create_instance: FnNvEncodeApiCreateInstance,
     // Keep libraries alive
@@ -317,6 +614,8 @@ fn load_vtable() -> Result<Vtable, String> {
         cu_device_get_attribute: sym!(libcuda, "cuDeviceGetAttribute", FnCuDeviceGetAttribute),
         cu_ctx_push_current_v2: sym!(libcuda, "cuCtxPushCurrent_v2", FnCuCtxPushCurrentV2),
         cu_ctx_pop_current_v2: sym!(libcuda, "cuCtxPopCurrent_v2", FnCuCtxPopCurrentV2),
+        cu_memcpy_dto_h_v2: sym!(libcuda, "cuMemcpyDtoH_v2", FnCuMemcpyDtoHV2),
+        cu_stream_synchronize: sym!(libcuda, "cuStreamSynchronize", FnCuStreamSynchronize),
         cuvid_create_decoder: sym!(libnvcuvid, "cuvidCreateDecoder", FnCuvidCreateDecoder),
         cuvid_destroy_decoder: sym!(
             libnvcuvid,
@@ -335,6 +634,21 @@ fn load_vtable() -> Result<Vtable, String> {
             FnCuvidUnmapVideoFrame64
         ),
         cuvid_get_decoder_caps: sym!(libnvcuvid, "cuvidGetDecoderCaps", FnCuvidGetDecoderCaps),
+        cuvid_create_video_parser: sym!(
+            libnvcuvid,
+            "cuvidCreateVideoParser",
+            FnCuvidCreateVideoParser
+        ),
+        cuvid_parse_video_data: sym!(
+            libnvcuvid,
+            "cuvidParseVideoData",
+            FnCuvidParseVideoData
+        ),
+        cuvid_destroy_video_parser: sym!(
+            libnvcuvid,
+            "cuvidDestroyVideoParser",
+            FnCuvidDestroyVideoParser
+        ),
         nv_encode_api_create_instance: sym!(
             libnvenc,
             "NvEncodeAPICreateInstance",

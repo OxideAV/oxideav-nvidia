@@ -24,18 +24,18 @@
 //!
 //! # Status
 //!
-//! Round 2 (this commit): in addition to the Round 1 scaffolding the
-//! crate now exposes safe wrappers for CUDA driver init + device
-//! enumeration ([`device::Cuda`], [`device::CudaDevice`],
-//! [`device::CudaContext`]), and an NVDEC capability query
-//! ([`nvdec::nvdec_caps`]). On a host with the NVIDIA driver and at
-//! least one supported GPU, `tests/round2_init.rs` end-to-end calls
-//! `cuInit` → `cuDeviceGet` → `cuCtxCreate_v2` → `cuvidGetDecoderCaps`
-//! and asserts the H.264 / 4:2:0 / 8-bit combo is reported supported.
+//! Round 3 (this commit): real H.264 hardware decode end-to-end via
+//! NVDEC. The new [`decoder::H264NvDecoder`] uses the cuvidParser
+//! bitstream layer (`cuvidCreateVideoParser` → `cuvidParseVideoData`
+//! with sequence / decode / display callbacks), `cuvidCreateDecoder`,
+//! and `cuvidMapVideoFrame64` + `cuMemcpyDtoH_v2` to deliver planar
+//! I420 [`oxideav_core::VideoFrame`]s. `register()` now wires the H.264
+//! factory into the codec registry with `with_priority(5)`. NVENC
+//! encode is still on the roadmap.
 //!
-//! Round 3 will wire up the NVDEC + NVENC `Decoder` / `Encoder` trait
-//! factories so the crate plugs into the framework registry like
-//! `oxideav-videotoolbox` does.
+//! Round 2: safe wrappers for CUDA driver init + device enumeration
+//! ([`device::Cuda`], [`device::CudaDevice`], [`device::CudaContext`])
+//! and an NVDEC capability query ([`nvdec::nvdec_caps`]).
 //!
 //! # Workspace policy
 //!
@@ -48,26 +48,60 @@ pub mod device;
 pub mod nvdec;
 pub mod sys;
 
+#[cfg(feature = "registry")]
+pub mod decoder;
+
 pub use device::{Cuda, CudaContext, CudaDevice, NvError};
 pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
 
-/// Confirm the NVIDIA framework loads, but do not register any codec
-/// factories yet (Round 1 scaffolding).
-///
-/// If the driver isn't installed (no NVIDIA hardware, AMD-only system,
-/// container without `--gpus all`, etc.) the function logs and
-/// returns — the runtime falls back to the pure-Rust impls.
 #[cfg(feature = "registry")]
-pub fn register(_ctx: &mut oxideav_core::RuntimeContext) {
+pub use decoder::H264NvDecoder;
+
+/// Register the NVDEC H.264 decoder factory with the codec registry.
+///
+/// The factory itself does the runtime driver-availability check and
+/// returns `Error::Unsupported` if CUDA / NVDEC isn't usable on the
+/// host — but we still gate the registration on a successful framework
+/// dlopen at startup so the registry doesn't keep a slot reserved on
+/// systems with no NVIDIA hardware at all.
+#[cfg(feature = "registry")]
+pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
+    use oxideav_core::{CodecCapabilities, CodecId, CodecInfo, CodecTag};
+
     match sys::framework() {
-        Ok(_) => {
-            // Round 1: framework loads. No factories wired up yet.
-        }
+        Ok(_) => {}
         Err(e) => {
-            eprintln!("oxideav-nvidia: library unavailable, skipping registration: {e}");
+            eprintln!(
+                "oxideav-nvidia: library unavailable, skipping registration: {e}"
+            );
+            return;
         }
     }
+
+    // ── H.264 decoder via NVDEC ────────────────────────────────────────────
+    let h264_caps = CodecCapabilities::video("h264_nvdec")
+        .with_lossy(true)
+        .with_intra_only(false)
+        .with_hardware(true)
+        // priority 5: lower than the platform-native VideoToolbox (10)
+        // when both are available, but well above any pure-software
+        // fallback. Adjust if VAAPI/VDPAU sit at a different rank.
+        .with_priority(5);
+
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("h264"))
+            .capabilities(h264_caps.with_decode())
+            .decoder(decoder::H264NvDecoder::make)
+            .tags([
+                CodecTag::fourcc(b"H264"),
+                CodecTag::fourcc(b"h264"),
+                CodecTag::fourcc(b"AVC1"),
+                CodecTag::fourcc(b"avc1"),
+                CodecTag::fourcc(b"X264"),
+                CodecTag::matroska("V_MPEG4/ISO/AVC"),
+            ]),
+    );
 }
 
 #[cfg(feature = "registry")]

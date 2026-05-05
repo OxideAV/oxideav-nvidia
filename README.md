@@ -45,7 +45,7 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 
 | Codec        | Decode (NVDEC) | Encode (NVENC) |
 |--------------|----------------|----------------|
-| H.264        | planned        | planned        |
+| H.264        | **shipped (Round 3)** | planned        |
 | HEVC         | planned        | planned        |
 | AV1          | planned (Ada Lovelace+) | planned (Ada Lovelace+) |
 | VP9          | planned        | —              |
@@ -54,7 +54,41 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 2 (this commit): the crate now exposes safe wrappers around the CUDA driver init + device enumeration, plus an NVDEC capability query.
+Round 3 (this commit): real H.264 decode via NVDEC + the
+[cuvidParser](https://docs.nvidia.com/video-technologies/video-codec-sdk/12.1/nvdec-video-decoder-api-prog-guide/index.html#video-parser) bitstream layer:
+
+- New `H264NvDecoder` implementing `oxideav_core::Decoder`.
+- `H264NvDecoder::make` initialises CUDA, picks device 0, creates a
+  context, and stands up a `cuvidParser` configured for H.264 with
+  three callbacks (sequence, decode, display).
+- `send_packet` hands the Annex-B bytes to `cuvidParseVideoData`.
+  The parser fires the sequence callback on the first SPS — at which
+  point we build a `CUVIDDECODECREATEINFO` (NV12 output, weave
+  deinterlace, target = coded resolution) and call
+  `cuvidCreateDecoder`. Per-picture, the parser fills a 4280-byte
+  `CUVIDPICPARAMS` blob and we forward it verbatim to
+  `cuvidDecodePicture`; per-display, we `cuvidMapVideoFrame64`,
+  `cuStreamSynchronize`, copy back via `cuMemcpyDtoH_v2`, deinterleave
+  the NV12 chroma plane into separate U + V planes, and push an I420
+  `VideoFrame`.
+- `flush()` sends a `CUVID_PKT_ENDOFSTREAM` packet so the parser
+  drains its display queue, after which `receive_frame` returns
+  `Error::Eof`.
+- `Drop` destroys the parser, then the decoder, then the CUDA
+  context (in that order).
+- `register()` now wires the H.264 factory into the codec registry
+  with `with_priority(5)` and the standard
+  H264 / AVC1 / X264 / `V_MPEG4/ISO/AVC` tag set.
+- `tests/round3_decode.rs::nvdec_h264_idr_decodes_to_320x240_i420`
+  decodes a 1-frame Annex-B IDR fixture (`testsrc2 -> libx264 baseline`)
+  and asserts the output is 320×240 I420 with luma std-dev > 5
+  (the colour-bar testsrc2 pattern produces stddev ≈ 56).
+- All Round 2 tests continue to pass.
+
+NVENC encode is still on the roadmap — Round 3 ships decode only.
+
+Round 2 (previous commit): exposed safe wrappers around the CUDA
+driver init + device enumeration, plus an NVDEC capability query.
 
 - `Cuda::init()` runs `cuInit(0)` once and returns a handle.
 - `Cuda::device_count()` + `Cuda::device(ordinal)` enumerate GPUs.
@@ -63,8 +97,6 @@ Round 2 (this commit): the crate now exposes safe wrappers around the CUDA drive
 - `nvdec_caps(codec, chroma, bit_depth)` calls `cuvidGetDecoderCaps` and returns a public `NvdecCaps` struct (codec / chroma / bit depth + `is_supported` + `max_width` / `max_height` / `max_mb_count` etc.).
 
 `tests/round2_init.rs` exercises the full path on real NVIDIA hardware: `cuInit` → `cuDeviceGet` → `cuDeviceGetName` / `cuDeviceTotalMem_v2` / `cuDeviceGetAttribute` → `cuCtxCreate_v2` → `cuvidGetDecoderCaps`. Each test detects "no driver / no GPU" and skips with `eprintln!` rather than panicking, so the suite passes on a Linux box with an NVIDIA GPU and skips cleanly on every other host.
-
-`register()` is still a no-op-with-log in Round 2 — the codec / encoder / decoder trait factories are scoped for Round 3.
 
 ## Workspace policy
 
