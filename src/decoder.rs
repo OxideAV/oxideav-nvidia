@@ -40,9 +40,8 @@ use crate::sys::{
     self, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO, CUVIDPARSERPARAMS,
     CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET, CUDA_SUCCESS,
     CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID,
-    CUDA_VIDEO_DEINTERLACE_WEAVE, CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVID_PKT_ENDOFPICTURE,
-    CUVID_PKT_ENDOFSTREAM, CUVID_PKT_TIMESTAMP, CUvideodecoder, CUvideoparser,
-    CudaVideoCodec,
+    CUDA_VIDEO_DEINTERLACE_WEAVE, CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVID_PKT_ENDOFSTREAM,
+    CUVID_PKT_TIMESTAMP, CUvideodecoder, CUvideoparser, CudaVideoCodec,
 };
 
 /// Number of decode surfaces we ask NVDEC to keep around. The parser
@@ -74,6 +73,8 @@ struct CallbackState {
     /// the parser leaves it as zeros).
     display_w: u32,
     display_h: u32,
+    display_left: u32,
+    display_top: u32,
     /// Frames pulled out of the display callback, ready for
     /// `receive_frame` to drain.
     frames: VecDeque<VideoFrame>,
@@ -96,6 +97,8 @@ impl CallbackState {
             coded_height: 0,
             display_w: 0,
             display_h: 0,
+            display_left: 0,
+            display_top: 0,
             frames: VecDeque::new(),
             error: None,
         }))
@@ -196,6 +199,8 @@ unsafe extern "C" fn seq_callback(user_data: *mut c_void, fmt: *mut CUVIDEOFORMA
     guard.coded_height = coded_h;
     guard.display_w = disp_w;
     guard.display_h = disp_h;
+    guard.display_left = f.display_left.max(0) as u32;
+    guard.display_top = f.display_top.max(0) as u32;
 
     // Returning 1 accepts the format. Returning a value > 1 would
     // override the dpb size with that value; we set it via
@@ -299,6 +304,8 @@ unsafe extern "C" fn display_callback(
     let coded_w = guard.coded_width as usize;
     let disp_w = guard.display_w as usize;
     let disp_h = guard.display_h as usize;
+    let disp_left = guard.display_left as usize;
+    let disp_top = guard.display_top as usize;
     let chroma_h = coded_h.div_ceil(2);
 
     // Wait for decode work to finish before reading host-side. NVDEC
@@ -346,17 +353,24 @@ unsafe extern "C" fn display_callback(
     }
 
     // ── crop to display rect, deinterleave NV12 → I420 ─────────────
-    let out_w = disp_w.min(coded_w);
-    let out_h = disp_h.min(coded_h);
+    // Honour the conformance-window-style display rectangle reported
+    // by the parser: NVENC HEVC streams of 320×240 typically code
+    // 320×256 with `display_top = 0, display_bottom = 240` (bottom
+    // crop), but other producers may use a top crop instead.
+    let out_w = disp_w.min(coded_w.saturating_sub(disp_left));
+    let out_h = disp_h.min(coded_h.saturating_sub(disp_top));
     let chroma_out_w = out_w.div_ceil(2);
     let chroma_out_h = out_h.div_ceil(2);
+    let chroma_left = disp_left / 2;
+    let chroma_top = disp_top / 2;
 
     let mut y_out = vec![0u8; out_w * out_h];
     let mut u_out = vec![0u8; chroma_out_w * chroma_out_h];
     let mut v_out = vec![0u8; chroma_out_w * chroma_out_h];
 
     for row in 0..out_h {
-        let src_off = row * pitch;
+        let src_row = disp_top + row;
+        let src_off = src_row * pitch + disp_left;
         let dst_off = row * out_w;
         if src_off + out_w <= y_pitched.len() {
             y_out[dst_off..dst_off + out_w]
@@ -365,7 +379,8 @@ unsafe extern "C" fn display_callback(
     }
 
     for row in 0..chroma_out_h {
-        let src_off = row * pitch;
+        let src_row = chroma_top + row;
+        let src_off = src_row * pitch + chroma_left * 2;
         let dst_off = row * chroma_out_w;
         if src_off >= uv_pitched.len() {
             break;
@@ -410,15 +425,20 @@ unsafe extern "C" fn display_callback(
     1
 }
 
-// ─────────────────────────── H.264 decoder ────────────────────────────────────
+// ─────────────────────────── Generic NVDEC decoder ────────────────────────────
 
-/// NVDEC-backed H.264 decoder.
+/// NVDEC-backed video decoder, parameterised over codec type.
 ///
 /// Holds a CUDA context (kept current on the caller's thread for the
 /// whole lifetime), the cuvidParser, and the lazily-created
 /// `CUvideodecoder`. Frame output is pushed by the display callback
 /// onto a `Mutex<VecDeque<VideoFrame>>` and drained by `receive_frame`.
-pub struct H264NvDecoder {
+///
+/// The cuvidParser pipeline is codec-agnostic — only the codec_type and
+/// the `bAnnexb` flag change between H.264, HEVC, and AV1. The
+/// `CUVIDPICPARAMS` blob the parser fills in is opaque to us; we just
+/// forward it to `cuvidDecodePicture`.
+pub struct NvDecoder {
     codec_id: CodecId,
     /// CUDA driver init guard. Cheap to copy.
     _cuda: Cuda,
@@ -437,15 +457,17 @@ pub struct H264NvDecoder {
     flushed: bool,
 }
 
-unsafe impl Send for H264NvDecoder {}
+unsafe impl Send for NvDecoder {}
 
-impl H264NvDecoder {
-    /// Standard codec-registry factory. Maps any
-    /// driver-unavailable / no-device condition to `Error::Unsupported`
-    /// so the registry falls back to the pure-Rust H.264 decoder.
-    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        let _ = params;
-
+impl NvDecoder {
+    /// Build an `NvDecoder` for `codec` with the given codec id label.
+    /// `is_annex_b` selects between Annex-B / start-code framed input
+    /// (H.264 / HEVC) and the codec's native framing (AV1 raw OBUs).
+    fn make_for(
+        codec: CudaVideoCodec,
+        codec_id: &str,
+        is_annex_b: bool,
+    ) -> Result<Box<dyn oxideav_core::Decoder>> {
         let cuda = Cuda::init().map_err(map_unsupported)?;
         let count = cuda.device_count().map_err(map_unsupported)?;
         if count == 0 {
@@ -455,7 +477,7 @@ impl H264NvDecoder {
         let ctx = cuda.create_context_for(&dev).map_err(map_unsupported)?;
 
         let state = CallbackState::new();
-        let parser = create_parser(&state).map_err(|e| match e {
+        let parser = create_parser(codec, is_annex_b, &state).map_err(|e| match e {
             // Driver-load / dlsym errors → unsupported, anything else
             // (e.g. a real CUresult) → other.
             _ if e.is_unavailable() => Error::unsupported(format!("nvidia: {e}")),
@@ -465,7 +487,7 @@ impl H264NvDecoder {
         let _ = dev; // device handle is just an ordinal; nothing to keep alive
 
         Ok(Box::new(Self {
-            codec_id: CodecId::new("h264"),
+            codec_id: CodecId::new(codec_id),
             _cuda: cuda,
             _ctx: Some(ctx),
             parser,
@@ -484,7 +506,7 @@ impl H264NvDecoder {
     }
 }
 
-impl Drop for H264NvDecoder {
+impl Drop for NvDecoder {
     fn drop(&mut self) {
         if let Ok(vt) = sys::vtable() {
             if !self.parser.is_null() {
@@ -507,7 +529,7 @@ impl Drop for H264NvDecoder {
     }
 }
 
-impl oxideav_core::Decoder for H264NvDecoder {
+impl oxideav_core::Decoder for NvDecoder {
     fn codec_id(&self) -> &CodecId {
         &self.codec_id
     }
@@ -527,7 +549,12 @@ impl oxideav_core::Decoder for H264NvDecoder {
 
         let vt = sys::vtable().map_err(|e| Error::unsupported(format!("nvidia: {e}")))?;
 
-        let mut flags: u64 = CUVID_PKT_ENDOFPICTURE as u64;
+        // Don't set CUVID_PKT_ENDOFPICTURE here — that flag tells the
+        // parser the packet contains *exactly* one picture, which
+        // breaks when a single packet carries a whole multi-frame
+        // bytestream (encoder output, fixture concatenation). The
+        // parser delimits pictures via NAL/OBU framing on its own.
+        let mut flags: u64 = 0;
         let timestamp = packet.pts.unwrap_or(0);
         if packet.pts.is_some() {
             flags |= CUVID_PKT_TIMESTAMP as u64;
@@ -601,18 +628,27 @@ impl oxideav_core::Decoder for H264NvDecoder {
 
 // ─────────────────────────── helpers ──────────────────────────────────────────
 
-/// Build a cuvidParser configured for H.264 with our three callbacks
+/// Build a cuvidParser configured for `codec` with our three callbacks
 /// wired to `state`.
-fn create_parser(state: &Arc<Mutex<CallbackState>>) -> std::result::Result<CUvideoparser, NvError> {
+///
+/// `is_annex_b`: set to `true` for H.264 / HEVC streams in Annex-B
+/// (start-code) framing. AV1 raw OBU streams use their own framing —
+/// the parser figures it out, so we leave the flag at 0.
+fn create_parser(
+    codec: CudaVideoCodec,
+    is_annex_b: bool,
+    state: &Arc<Mutex<CallbackState>>,
+) -> std::result::Result<CUvideoparser, NvError> {
     let vt = sys::vtable().map_err(NvError::from_str)?;
 
     let mut params = CUVIDPARSERPARAMS::default();
-    params.codec_type = CudaVideoCodec::H264 as i32;
+    params.codec_type = codec as i32;
     params.ul_max_num_decode_surfaces = DEFAULT_NUM_DECODE_SURFACES;
     params.ul_clock_rate = 0; // default 10 MHz
     params.ul_error_threshold = 0;
     params.ul_max_display_delay = 0;
-    params.flags = 0;
+    // bAnnexb : 1 occupies the lowest bit of the packed flags word.
+    params.flags = if is_annex_b { 1 } else { 0 };
     params.user_data = Arc::as_ptr(state) as *mut c_void;
     params.pfn_sequence_callback = Some(seq_callback);
     params.pfn_decode_picture = Some(decode_callback);
@@ -627,6 +663,41 @@ fn create_parser(state: &Arc<Mutex<CallbackState>>) -> std::result::Result<CUvid
         return Err(NvError::from_cu(Some(vt), r));
     }
     Ok(parser)
+}
+
+// ─────────────────────────── public codec wrappers ────────────────────────────
+
+/// NVDEC-backed H.264 decoder — thin wrapper over [`NvDecoder`].
+pub struct H264NvDecoder;
+
+impl H264NvDecoder {
+    /// Standard codec-registry factory. Maps any
+    /// driver-unavailable / no-device condition to `Error::Unsupported`
+    /// so the registry falls back to a software decoder.
+    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::H264, "h264", true)
+    }
+}
+
+/// NVDEC-backed HEVC (H.265) decoder.
+pub struct HevcNvDecoder;
+
+impl HevcNvDecoder {
+    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::Hevc, "hevc", true)
+    }
+}
+
+/// NVDEC-backed AV1 decoder.
+///
+/// Expects a raw OBU bitstream — the cuvidParser parses AV1 OBUs
+/// natively, so `bAnnexb` is left at 0.
+pub struct Av1NvDecoder;
+
+impl Av1NvDecoder {
+    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::Av1, "av1", false)
+    }
 }
 
 /// Map every `NvError` from initialisation into `Error::Unsupported`

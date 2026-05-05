@@ -24,14 +24,24 @@
 //!
 //! # Status
 //!
-//! Round 3 (this commit): real H.264 hardware decode end-to-end via
-//! NVDEC. The new [`decoder::H264NvDecoder`] uses the cuvidParser
-//! bitstream layer (`cuvidCreateVideoParser` → `cuvidParseVideoData`
-//! with sequence / decode / display callbacks), `cuvidCreateDecoder`,
-//! and `cuvidMapVideoFrame64` + `cuMemcpyDtoH_v2` to deliver planar
-//! I420 [`oxideav_core::VideoFrame`]s. `register()` now wires the H.264
-//! factory into the codec registry with `with_priority(5)`. NVENC
-//! encode is still on the roadmap.
+//! Round 4 (this commit): NVDEC decoders for HEVC and AV1, plus NVENC
+//! encoders for H.264 and HEVC. The cuvidParser pipeline from Round 3
+//! generalises trivially across codecs — the [`decoder::NvDecoder`]
+//! struct is now codec-agnostic and the public [`decoder::H264NvDecoder`],
+//! [`decoder::HevcNvDecoder`], and [`decoder::Av1NvDecoder`] are thin
+//! wrappers around it. NVENC support follows the standard NVENC pattern:
+//! [`encoder::NvEncoder`] resolves the function table via
+//! `NvEncodeAPICreateInstance`, opens a CUDA-backed encode session, asks
+//! the driver for the default `NV_ENC_CONFIG` for a `P4` preset, and
+//! pumps NV12 frames through `nvEncEncodePicture` →
+//! `nvEncLockBitstream`.
+//!
+//! Round 3: real H.264 hardware decode end-to-end via NVDEC. The
+//! [`decoder::H264NvDecoder`] uses the cuvidParser bitstream layer
+//! (`cuvidCreateVideoParser` → `cuvidParseVideoData` with sequence /
+//! decode / display callbacks), `cuvidCreateDecoder`, and
+//! `cuvidMapVideoFrame64` + `cuMemcpyDtoH_v2` to deliver planar I420
+//! [`oxideav_core::VideoFrame`]s.
 //!
 //! Round 2: safe wrappers for CUDA driver init + device enumeration
 //! ([`device::Cuda`], [`device::CudaDevice`], [`device::CudaContext`])
@@ -51,17 +61,28 @@ pub mod sys;
 #[cfg(feature = "registry")]
 pub mod decoder;
 
+#[cfg(feature = "registry")]
+pub mod encoder;
+
 pub use device::{Cuda, CudaContext, CudaDevice, NvError};
 pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
 
 #[cfg(feature = "registry")]
-pub use decoder::H264NvDecoder;
+pub use decoder::{Av1NvDecoder, H264NvDecoder, HevcNvDecoder, NvDecoder};
 
-/// Register the NVDEC H.264 decoder factory with the codec registry.
+#[cfg(feature = "registry")]
+pub use encoder::{H264NvEncoder, HevcNvEncoder, NvEncoder};
+
+/// Register the NVDEC and NVENC factories with the codec registry.
 ///
-/// The factory itself does the runtime driver-availability check and
-/// returns `Error::Unsupported` if CUDA / NVDEC isn't usable on the
+/// Round 4 wires up:
+///
+/// * NVDEC decoders for H.264, HEVC, and AV1
+/// * NVENC encoders for H.264 and HEVC
+///
+/// Each factory does the runtime driver-availability check and returns
+/// `Error::Unsupported` if CUDA / NVDEC / NVENC isn't usable on the
 /// host — but we still gate the registration on a successful framework
 /// dlopen at startup so the registry doesn't keep a slot reserved on
 /// systems with no NVIDIA hardware at all.
@@ -100,6 +121,72 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"avc1"),
                 CodecTag::fourcc(b"X264"),
                 CodecTag::matroska("V_MPEG4/ISO/AVC"),
+            ]),
+    );
+
+    // ── H.264 encoder via NVENC ────────────────────────────────────────────
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("h264"))
+            .capabilities(
+                CodecCapabilities::video("h264_nvenc")
+                    .with_lossy(true)
+                    .with_intra_only(false)
+                    .with_hardware(true)
+                    .with_priority(5)
+                    .with_encode(),
+            )
+            .encoder(encoder::H264NvEncoder::make),
+    );
+
+    // ── HEVC decoder via NVDEC ─────────────────────────────────────────────
+    let hevc_caps = CodecCapabilities::video("hevc_nvdec")
+        .with_lossy(true)
+        .with_intra_only(false)
+        .with_hardware(true)
+        .with_priority(5);
+
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("hevc"))
+            .capabilities(hevc_caps.with_decode())
+            .decoder(decoder::HevcNvDecoder::make)
+            .tags([
+                CodecTag::fourcc(b"hvc1"),
+                CodecTag::fourcc(b"hev1"),
+                CodecTag::fourcc(b"HEVC"),
+                CodecTag::fourcc(b"H265"),
+                CodecTag::matroska("V_MPEGH/ISO/HEVC"),
+            ]),
+    );
+
+    // ── HEVC encoder via NVENC ─────────────────────────────────────────────
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("hevc"))
+            .capabilities(
+                CodecCapabilities::video("hevc_nvenc")
+                    .with_lossy(true)
+                    .with_intra_only(false)
+                    .with_hardware(true)
+                    .with_priority(5)
+                    .with_encode(),
+            )
+            .encoder(encoder::HevcNvEncoder::make),
+    );
+
+    // ── AV1 decoder via NVDEC (Blackwell+) ─────────────────────────────────
+    let av1_caps = CodecCapabilities::video("av1_nvdec")
+        .with_lossy(true)
+        .with_intra_only(false)
+        .with_hardware(true)
+        .with_priority(5);
+
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("av1"))
+            .capabilities(av1_caps.with_decode())
+            .decoder(decoder::Av1NvDecoder::make)
+            .tags([
+                CodecTag::fourcc(b"AV01"),
+                CodecTag::fourcc(b"av01"),
+                CodecTag::matroska("V_AV1"),
             ]),
     );
 }

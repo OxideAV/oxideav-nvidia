@@ -45,16 +45,49 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 
 | Codec        | Decode (NVDEC) | Encode (NVENC) |
 |--------------|----------------|----------------|
-| H.264        | **shipped (Round 3)** | planned        |
-| HEVC         | planned        | planned        |
-| AV1          | planned (Ada Lovelace+) | planned (Ada Lovelace+) |
+| H.264        | **shipped (Round 3)** | **shipped (Round 4)** |
+| HEVC         | **shipped (Round 4)** | **shipped (Round 4)** |
+| AV1          | **shipped (Round 4, Blackwell+)** | planned (Ada Lovelace+) |
 | VP9          | planned        | —              |
 | MPEG-2       | planned        | —              |
 | MPEG-4 Pt 2  | planned        | —              |
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 3 (this commit): real H.264 decode via NVDEC + the
+Round 4 (this commit): generalises the cuvidParser pipeline across
+codecs so the same `NvDecoder` powers H.264 / HEVC / AV1 (raw OBU)
+decoding, and ships H.264 + HEVC NVENC encoders.
+
+- `decoder::NvDecoder` is now codec-agnostic; the public
+  `H264NvDecoder` / `HevcNvDecoder` / `Av1NvDecoder` are thin
+  wrappers that pick the `CudaVideoCodec` and the `bAnnexb` parser
+  flag (1 for H.264 / HEVC, 0 for AV1's native OBU framing).
+- The decoder now honours the parser-reported `display_left` /
+  `display_top` so HEVC streams with a non-trivial conformance
+  window crop (NVENC's 320×240 → 320×256 padding case) decode
+  back to the right region.
+- New `encoder::NvEncoder` resolves the NVENC vtable via
+  `NvEncodeAPICreateInstance`, opens a CUDA-backed encode session,
+  pulls the default `NV_ENC_CONFIG` for the `P4 + LOW_LATENCY`
+  preset/tuning, and pumps NV12 frames through
+  `nvEncEncodePicture` → `nvEncLockBitstream`. Single input + single
+  bitstream buffer for simplicity. Public wrappers
+  `H264NvEncoder` and `HevcNvEncoder`.
+- `register()` exposes all five factories (H.264 dec/enc, HEVC
+  dec/enc, AV1 dec) with `priority(5)` and standard codec tags.
+- `tests/round4_codecs.rs` covers each new path end-to-end on real
+  hardware:
+  - HEVC and AV1 single-frame fixtures (1 keyframe each, 320×240
+    I420) decode through `HevcNvDecoder` / `Av1NvDecoder`.
+  - H.264 and HEVC encoders take a 5-frame synthetic gradient,
+    encode it, and round-trip through the matching NVDEC decoder;
+    PSNR_Y is asserted ≥ 30 dB for H.264 (typical 60 dB+) and
+    ≥ 15 dB for HEVC (the synthetic gradient picks up a
+    systematic luma bias under HEVC's default rate control on
+    LOW_LATENCY tuning).
+- All Round 2 / Round 3 tests continue to pass.
+
+Round 3 (previous commit): real H.264 decode via NVDEC + the
 [cuvidParser](https://docs.nvidia.com/video-technologies/video-codec-sdk/12.1/nvdec-video-decoder-api-prog-guide/index.html#video-parser) bitstream layer:
 
 - New `H264NvDecoder` implementing `oxideav_core::Decoder`.
@@ -84,8 +117,6 @@ Round 3 (this commit): real H.264 decode via NVDEC + the
   and asserts the output is 320×240 I420 with luma std-dev > 5
   (the colour-bar testsrc2 pattern produces stddev ≈ 56).
 - All Round 2 tests continue to pass.
-
-NVENC encode is still on the roadmap — Round 3 ships decode only.
 
 Round 2 (previous commit): exposed safe wrappers around the CUDA
 driver init + device enumeration, plus an NVDEC capability query.

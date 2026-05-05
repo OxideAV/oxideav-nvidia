@@ -465,12 +465,564 @@ pub type FnCuStreamSynchronize = unsafe extern "C" fn(stream: CUstream) -> CUres
 
 // libnvidia-encode (NVENC)
 //
-// Only the single bootstrap entry. `NvEncodeAPICreateInstance` takes a
+// Only the single bootstrap entry: `NvEncodeAPICreateInstance` takes a
 // `NV_ENCODE_API_FUNCTION_LIST*` whose `version` field is set by the
-// caller; on success the rest of the function table is populated.
-// Round 2 will model the function-list struct and call this.
+// caller; on success the rest of the function table is populated. The
+// rest of the NVENC entry points are reached via that table —
+// `NvEncFunctions` below — so the dynamic-linker stays free of
+// per-driver-version symbol drift.
 pub type FnNvEncodeApiCreateInstance =
     unsafe extern "C" fn(function_list: *mut c_void) -> i32;
+
+// ─────────────────────────── NVENC types ─────────────────────────────────────
+
+/// NVENCSTATUS — return code for every NVENC function. `0` is success.
+pub type NvEncStatus = i32;
+pub const NV_ENC_SUCCESS: NvEncStatus = 0;
+
+/// `NV_ENC_DEVICE_TYPE_CUDA` from `<nvEncodeAPI.h>`.
+pub const NV_ENC_DEVICE_TYPE_CUDA: u32 = 0x1;
+
+/// 16-byte GUID, matching the platform `GUID` typedef in `<nvEncodeAPI.h>`.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Guid {
+    pub data1: u32,
+    pub data2: u16,
+    pub data3: u16,
+    pub data4: [u8; 8],
+}
+
+impl Guid {
+    pub const fn new(data1: u32, data2: u16, data3: u16, data4: [u8; 8]) -> Self {
+        Self {
+            data1,
+            data2,
+            data3,
+            data4,
+        }
+    }
+}
+
+// ─── codec / preset / profile GUIDs (literal from <nvEncodeAPI.h>) ──────────
+
+/// `NV_ENC_CODEC_H264_GUID = {6BC82762-4E63-4ca4-AA85-1E50F321F6BF}`.
+pub const NV_ENC_CODEC_H264_GUID: Guid = Guid::new(
+    0x6bc82762,
+    0x4e63,
+    0x4ca4,
+    [0xaa, 0x85, 0x1e, 0x50, 0xf3, 0x21, 0xf6, 0xbf],
+);
+
+/// `NV_ENC_CODEC_HEVC_GUID = {790CDC88-4522-4d7b-9425-BDA9975F7603}`.
+pub const NV_ENC_CODEC_HEVC_GUID: Guid = Guid::new(
+    0x790cdc88,
+    0x4522,
+    0x4d7b,
+    [0x94, 0x25, 0xbd, 0xa9, 0x97, 0x5f, 0x76, 0x03],
+);
+
+/// `NV_ENC_CODEC_AV1_GUID = {0A352289-0AA7-4759-862D-5D15CD16D254}`.
+pub const NV_ENC_CODEC_AV1_GUID: Guid = Guid::new(
+    0x0a352289,
+    0x0aa7,
+    0x4759,
+    [0x86, 0x2d, 0x5d, 0x15, 0xcd, 0x16, 0xd2, 0x54],
+);
+
+/// `NV_ENC_PRESET_P4_GUID = {90A7B826-DF06-4862-B9D2-CD6D73A08681}` —
+/// medium quality / speed.
+pub const NV_ENC_PRESET_P4_GUID: Guid = Guid::new(
+    0x90a7b826,
+    0xdf06,
+    0x4862,
+    [0xb9, 0xd2, 0xcd, 0x6d, 0x73, 0xa0, 0x86, 0x81],
+);
+
+/// `NV_ENC_H264_PROFILE_HIGH_GUID = {E7CBC309-4F7A-4b89-AF2A-D537C92BE310}`.
+pub const NV_ENC_H264_PROFILE_HIGH_GUID: Guid = Guid::new(
+    0xe7cbc309,
+    0x4f7a,
+    0x4b89,
+    [0xaf, 0x2a, 0xd5, 0x37, 0xc9, 0x2b, 0xe3, 0x10],
+);
+
+/// `NV_ENC_HEVC_PROFILE_MAIN_GUID = {B514C39A-B55B-40fa-878F-F1253B4DFDEC}`.
+pub const NV_ENC_HEVC_PROFILE_MAIN_GUID: Guid = Guid::new(
+    0xb514c39a,
+    0xb55b,
+    0x40fa,
+    [0x87, 0x8f, 0xf1, 0x25, 0x3b, 0x4d, 0xfd, 0xec],
+);
+
+// ─── NVENC version macros ───────────────────────────────────────────────────
+
+/// `NVENCAPI_MAJOR_VERSION` — fixed at 12 in driver 580.x's header.
+pub const NVENCAPI_MAJOR_VERSION: u32 = 12;
+/// `NVENCAPI_MINOR_VERSION` — fixed at 1 in driver 580.x's header.
+pub const NVENCAPI_MINOR_VERSION: u32 = 1;
+
+/// `NVENCAPI_VERSION = MAJOR | (MINOR << 24) = 0x0100_000C`.
+pub const NVENCAPI_VERSION: u32 =
+    NVENCAPI_MAJOR_VERSION | (NVENCAPI_MINOR_VERSION << 24);
+
+/// `NVENCAPI_STRUCT_VERSION(ver) = NVENCAPI_VERSION | (ver << 16) | (0x7 << 28)`.
+pub const fn nvenc_struct_ver(v: u32) -> u32 {
+    NVENCAPI_VERSION | (v << 16) | (0x7u32 << 28)
+}
+
+/// Convenience: high-bit flag (`1u<<31`) set on the structs whose
+/// version macros use the `| (1u<<31)` form.
+const NV_ENC_VER_HIGH: u32 = 1u32 << 31;
+
+pub const NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER: u32 = nvenc_struct_ver(1);
+pub const NV_ENCODE_API_FUNCTION_LIST_VER: u32 = nvenc_struct_ver(2);
+pub const NV_ENC_INITIALIZE_PARAMS_VER: u32 = nvenc_struct_ver(6) | NV_ENC_VER_HIGH;
+pub const NV_ENC_CONFIG_VER: u32 = nvenc_struct_ver(8) | NV_ENC_VER_HIGH;
+pub const NV_ENC_PRESET_CONFIG_VER: u32 = nvenc_struct_ver(4) | NV_ENC_VER_HIGH;
+pub const NV_ENC_CREATE_INPUT_BUFFER_VER: u32 = nvenc_struct_ver(1);
+pub const NV_ENC_CREATE_BITSTREAM_BUFFER_VER: u32 = nvenc_struct_ver(1);
+pub const NV_ENC_LOCK_INPUT_BUFFER_VER: u32 = nvenc_struct_ver(1);
+pub const NV_ENC_LOCK_BITSTREAM_VER: u32 = nvenc_struct_ver(1) | NV_ENC_VER_HIGH;
+pub const NV_ENC_PIC_PARAMS_VER: u32 = nvenc_struct_ver(6) | NV_ENC_VER_HIGH;
+
+/// `NV_ENC_BUFFER_FORMAT_NV12 = 0x1`.
+pub const NV_ENC_BUFFER_FORMAT_NV12: u32 = 0x1;
+
+/// `NV_ENC_PIC_STRUCT_FRAME = 0x1`.
+pub const NV_ENC_PIC_STRUCT_FRAME: u32 = 0x1;
+
+/// `NV_ENC_TUNING_INFO_HIGH_QUALITY = 1`.
+pub const NV_ENC_TUNING_INFO_HIGH_QUALITY: u32 = 1;
+/// `NV_ENC_TUNING_INFO_LOW_LATENCY = 2`.
+pub const NV_ENC_TUNING_INFO_LOW_LATENCY: u32 = 2;
+
+/// `NV_ENC_PIC_FLAGS_FORCEIDR = 1`.
+pub const NV_ENC_PIC_FLAGS_FORCEIDR: u32 = 0x1;
+/// `NV_ENC_PIC_FLAGS_EOS = 8` — the last-frame-of-stream marker.
+pub const NV_ENC_PIC_FLAGS_EOS: u32 = 0x8;
+
+// ─── NVENC structs we touch (verified vs `<nvEncodeAPI.h>` sizes) ───────────
+
+/// `NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS` — passed to
+/// `nvEncOpenEncodeSessionEx`.
+///
+/// Layout (`sizeof = 1552`):
+/// - 0:    version    (u32)
+/// - 4:    deviceType (u32, NV_ENC_DEVICE_TYPE)
+/// - 8:    device     (*mut c_void) — CUDA context handle
+/// - 16:   reserved   (*mut c_void)
+/// - 24:   apiVersion (u32) + 4-byte alignment hole
+/// - 32:   reserved1[253] (1012 bytes)
+/// - 1044: reserved2[64]  (512 bytes)
+#[repr(C)]
+pub struct NvEncOpenEncodeSessionExParams {
+    pub version: u32,
+    pub device_type: u32,
+    pub device: *mut c_void,
+    pub reserved: *mut c_void,
+    pub api_version: u32,
+    pub reserved1: [u32; 253],
+    pub reserved2: [*mut c_void; 64],
+}
+
+impl Default for NvEncOpenEncodeSessionExParams {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_CREATE_INPUT_BUFFER` — sizeof = 776.
+#[repr(C)]
+pub struct NvEncCreateInputBuffer {
+    pub version: u32,
+    pub width: u32,
+    pub height: u32,
+    pub memory_heap: u32, // deprecated
+    pub buffer_fmt: u32,
+    pub reserved: u32,
+    pub input_buffer: *mut c_void, // out
+    pub p_sys_mem_buffer: *mut c_void,
+    pub reserved1: [u32; 57],
+    pub reserved2: [*mut c_void; 63],
+}
+
+impl Default for NvEncCreateInputBuffer {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_CREATE_BITSTREAM_BUFFER` — sizeof = 776.
+#[repr(C)]
+pub struct NvEncCreateBitstreamBuffer {
+    pub version: u32,
+    pub size: u32,                     // deprecated
+    pub memory_heap: u32,              // deprecated
+    pub reserved: u32,
+    pub bitstream_buffer: *mut c_void, // out
+    pub bitstream_buffer_ptr: *mut c_void, // reserved
+    pub reserved1: [u32; 58],
+    pub reserved2: [*mut c_void; 64],
+}
+
+impl Default for NvEncCreateBitstreamBuffer {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_LOCK_INPUT_BUFFER` — sizeof = 1544.
+///
+/// Field offsets per `<nvEncodeAPI.h>`:
+/// -   0: version (u32)
+/// -   4: do_not_wait : 1, reservedBitFields : 31 (u32)
+/// -   8: inputBuffer (*mut c_void)
+/// -  16: bufferDataPtr (*mut c_void)
+/// -  24: pitch (u32)
+/// -  28: reserved1[251] (1004 bytes) → ends at 1032
+/// - 1032: reserved2[64]  (512 bytes) → ends at 1544
+#[repr(C)]
+pub struct NvEncLockInputBuffer {
+    pub version: u32,
+    pub flags: u32,
+    pub input_buffer: *mut c_void,
+    pub buffer_data_ptr: *mut c_void, // out
+    pub pitch: u32,                   // out
+    pub reserved1: [u32; 251],
+    pub reserved2: [*mut c_void; 64],
+}
+
+impl Default for NvEncLockInputBuffer {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_LOCK_BITSTREAM` — sizeof = 1552.
+///
+/// Field layout per `<nvEncodeAPI.h>`:
+/// -   0: version (u32)
+/// -   4: do_not_wait : 1, ltrFrame : 1, getRCStats : 1, reservedBitFields : 29 (u32)
+/// -   8: outputBitstream (*mut c_void)
+/// -  16: sliceOffsets (*mut u32)
+/// -  24: frameIdx (u32)
+/// -  28: hwEncodeStatus (u32)
+/// -  32: numSlices (u32)
+/// -  36: bitstreamSizeInBytes (u32)
+/// -  40: outputTimeStamp (u64)
+/// -  48: outputDuration (u64)
+/// -  56: bitstreamBufferPtr (*mut c_void)
+/// -  64: pictureType (u32)
+/// -  68: pictureStruct (u32)
+/// -  72: frameAvgQP (u32)
+/// -  76: frameSatd (u32)
+/// -  80: ltrFrameIdx (u32)
+/// -  84: ltrFrameBitmap (u32)
+/// -  88: temporalId (u32)
+/// -  92: intraMBCount (u32)
+/// -  96: interMBCount (u32)
+/// - 100: averageMVX (i32)
+/// - 104: averageMVY (i32)
+/// - 108: alphaLayerSizeInBytes (u32)
+/// - 112: outputStatsPtrSize (u32) + 4-byte alignment hole
+/// - 120: outputStatsPtr (*mut c_void)
+/// - 128: frameIdxDisplay (u32)
+/// - 132: reserved1[220]      (880 bytes)
+/// - 1012+ reserved2[63]      (504 bytes)
+/// - 1516+ reservedInternal[8]  (32 bytes)  → 1548 (then 4 padding to 1552)
+#[repr(C)]
+pub struct NvEncLockBitstream {
+    pub version: u32,
+    pub flags: u32, // packed bitfield word
+    pub output_bitstream: *mut c_void,
+    pub slice_offsets: *mut u32,
+    pub frame_idx: u32,
+    pub hw_encode_status: u32,
+    pub num_slices: u32,
+    pub bitstream_size_in_bytes: u32,
+    pub output_time_stamp: u64,
+    pub output_duration: u64,
+    pub bitstream_buffer_ptr: *mut c_void,
+    pub picture_type: u32,
+    pub picture_struct: u32,
+    pub frame_avg_qp: u32,
+    pub frame_satd: u32,
+    pub ltr_frame_idx: u32,
+    pub ltr_frame_bitmap: u32,
+    pub temporal_id: u32,
+    pub intra_mb_count: u32,
+    pub inter_mb_count: u32,
+    pub average_mvx: i32,
+    pub average_mvy: i32,
+    pub alpha_layer_size_in_bytes: u32,
+    pub output_stats_ptr_size: u32,
+    pub _pad0: u32,
+    pub output_stats_ptr: *mut c_void,
+    pub frame_idx_display: u32,
+    pub reserved1: [u32; 221],
+    pub reserved2: [*mut c_void; 63],
+    pub reserved_internal: [u32; 8],
+}
+
+impl Default for NvEncLockBitstream {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_PIC_PARAMS` — sizeof = 3360.
+///
+/// Field layout per `<nvEncodeAPI.h>`. The codec-specific union sits
+/// at offset 80 and is 1024 bytes (256 × u32). After that comes
+/// per-block ME hints (16 bytes), then ME hint pointers, then a few
+/// scalar fields, then large reserved arrays. We model only the prefix
+/// + use the trailing `tail` array for the rest.
+#[repr(C)]
+pub struct NvEncPicParams {
+    pub version: u32,
+    pub input_width: u32,
+    pub input_height: u32,
+    pub input_pitch: u32,
+    pub encode_pic_flags: u32,
+    pub frame_idx: u32,
+    pub input_time_stamp: u64,
+    pub input_duration: u64,
+    pub input_buffer: *mut c_void,
+    pub output_bitstream: *mut c_void,
+    pub completion_event: *mut c_void,
+    pub buffer_fmt: u32,
+    pub picture_struct: u32,
+    pub picture_type: u32,
+    /// `NV_ENC_CODEC_PIC_PARAMS` — opaque blob (256 × u32). Treated as
+    /// reserved/zero — the driver applies sensible defaults when the
+    /// caller leaves picture-type-decision (PTD) in driver-mode.
+    pub codec_pic_params: [u32; 256],
+    /// Combined tail (`meHintCountsPerBlock[2]` + `meExternalHints` +
+    /// `reserved1[6]` + `reserved2[2]` + `qpDeltaMap` + scalars +
+    /// large reserved arrays). Zero-init is safe.
+    pub tail: [u8; 3360 - 80 - 1024],
+}
+
+impl Default for NvEncPicParams {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_CONFIG` — sizeof = 3584, alignof = 8. Treated as an opaque
+/// blob: we only ever construct it from `nvEncGetEncodePresetConfigEx`
+/// and pass it straight back to `nvEncInitializeEncoder` (with the
+/// version field re-stamped).
+#[repr(C, align(8))]
+#[derive(Copy, Clone)]
+pub struct NvEncConfig {
+    pub bytes: [u8; 3584],
+}
+
+impl Default for NvEncConfig {
+    fn default() -> Self {
+        Self { bytes: [0u8; 3584] }
+    }
+}
+
+/// `NV_ENC_PRESET_CONFIG` — sizeof = 5128. Wraps a single
+/// `NV_ENC_CONFIG` plus reserved padding.
+///
+/// Layout per `<nvEncodeAPI.h>`:
+/// -    0: version (u32)
+/// -    8: presetCfg (NV_ENC_CONFIG, 3584 bytes, 8-aligned)
+/// - 3592: reserved1[255] (1020 bytes)
+/// - 4612: 4 bytes of padding for the 8-aligned reserved2 pointer array
+/// - 4616: reserved2[64]  (512 bytes) → ends at 5128
+#[repr(C)]
+pub struct NvEncPresetConfig {
+    pub version: u32,
+    pub _pad0: u32, // alignment for the 8-aligned NV_ENC_CONFIG payload
+    pub preset_cfg: NvEncConfig,
+    pub reserved1: [u32; 255],
+    pub _pad1: u32,
+    pub reserved2: [*mut c_void; 64],
+}
+
+impl Default for NvEncPresetConfig {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENC_INITIALIZE_PARAMS` — sizeof = 1808. Exposed prefix is what we
+/// actually fill in; the remainder is reserved + zero.
+#[repr(C)]
+pub struct NvEncInitializeParams {
+    pub version: u32,                      // 0
+    pub encode_guid: Guid,                 // 4
+    pub preset_guid: Guid,                 // 20
+    pub encode_width: u32,                 // 36
+    pub encode_height: u32,                // 40
+    pub dar_width: u32,                    // 44
+    pub dar_height: u32,                   // 48
+    pub frame_rate_num: u32,               // 52
+    pub frame_rate_den: u32,               // 56
+    pub enable_encode_async: u32,          // 60
+    pub enable_ptd: u32,                   // 64
+    /// Packed bitfields: reportSliceOffsets:1, enableSubFrameWrite:1,
+    /// enableExternalMEHints:1, enableMEOnlyMode:1,
+    /// enableWeightedPrediction:1, splitEncodeMode:4,
+    /// enableOutputInVidmem:1, enableReconFrameOutput:1,
+    /// enableOutputStats:1, reservedBitFields:20.
+    pub flags: u32,                        // 68
+    pub priv_data_size: u32,               // 72
+    pub _pad0: u32,
+    pub priv_data: *mut c_void,            // 80
+    pub encode_config: *mut NvEncConfig,   // 88
+    pub max_encode_width: u32,             // 96
+    pub max_encode_height: u32,            // 100
+    /// `maxMEHintCountsPerBlock[2]` — 2 × 16 bytes.
+    pub max_me_hint_counts_per_block: [u8; 32], // 104..136
+    pub tuning_info: u32,                  // 136
+    pub buffer_format: u32,                // 140
+    pub num_state_buffers: u32,            // 144
+    pub output_stats_level: u32,           // 148
+    /// Trailing reserved bytes (`reserved[285]` + `reserved2[64]` +
+    /// rounding to 1808). Zero-init is correct.
+    pub tail: [u8; 1808 - 152],
+}
+
+impl Default for NvEncInitializeParams {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+/// `NV_ENCODE_API_FUNCTION_LIST` — sizeof = 2552. We keep the leading
+/// version + the function pointer slots we actually use; everything
+/// else is reserved.
+///
+/// Field offsets are tabled in this crate's commit message and verified
+/// against the host C compiler.
+#[repr(C)]
+pub struct NvEncodeApiFunctionList {
+    pub version: u32,                                                  // 0
+    pub reserved: u32,                                                 // 4
+    pub nv_enc_open_encode_session: *mut c_void,                       // 8 (unused)
+    pub nv_enc_get_encode_guid_count: *mut c_void,                     // 16 (unused)
+    pub nv_enc_get_encode_profile_guid_count: *mut c_void,             // 24 (unused)
+    pub nv_enc_get_encode_profile_guids: *mut c_void,                  // 32 (unused)
+    pub nv_enc_get_encode_guids: *mut c_void,                          // 40 (unused)
+    pub nv_enc_get_input_format_count: *mut c_void,                    // 48 (unused)
+    pub nv_enc_get_input_formats: *mut c_void,                         // 56 (unused)
+    pub nv_enc_get_encode_caps: *mut c_void,                           // 64 (unused)
+    pub nv_enc_get_encode_preset_count: *mut c_void,                   // 72 (unused)
+    pub nv_enc_get_encode_preset_guids: *mut c_void,                   // 80 (unused)
+    pub nv_enc_get_encode_preset_config: *mut c_void,                  // 88 (unused)
+    pub nv_enc_initialize_encoder: PfnNvEncInitializeEncoder,          // 96
+    pub nv_enc_create_input_buffer: PfnNvEncCreateInputBuffer,         // 104
+    pub nv_enc_destroy_input_buffer: PfnNvEncDestroyInputBuffer,       // 112
+    pub nv_enc_create_bitstream_buffer: PfnNvEncCreateBitstreamBuffer, // 120
+    pub nv_enc_destroy_bitstream_buffer: PfnNvEncDestroyBitstreamBuffer, // 128
+    pub nv_enc_encode_picture: PfnNvEncEncodePicture,                  // 136
+    pub nv_enc_lock_bitstream: PfnNvEncLockBitstream,                  // 144
+    pub nv_enc_unlock_bitstream: PfnNvEncUnlockBitstream,              // 152
+    pub nv_enc_lock_input_buffer: PfnNvEncLockInputBuffer,             // 160
+    pub nv_enc_unlock_input_buffer: PfnNvEncUnlockInputBuffer,         // 168
+    pub nv_enc_get_encode_stats: *mut c_void,                          // 176 (unused)
+    pub nv_enc_get_sequence_params: *mut c_void,                       // 184 (unused)
+    pub nv_enc_register_async_event: *mut c_void,                      // 192 (unused)
+    pub nv_enc_unregister_async_event: *mut c_void,                    // 200 (unused)
+    pub nv_enc_map_input_resource: *mut c_void,                        // 208 (unused)
+    pub nv_enc_unmap_input_resource: *mut c_void,                      // 216 (unused)
+    pub nv_enc_destroy_encoder: PfnNvEncDestroyEncoder,                // 224
+    pub nv_enc_invalidate_ref_frames: *mut c_void,                     // 232 (unused)
+    pub nv_enc_open_encode_session_ex: PfnNvEncOpenEncodeSessionEx,    // 240
+    pub nv_enc_register_resource: *mut c_void,                         // 248 (unused)
+    pub nv_enc_unregister_resource: *mut c_void,                       // 256 (unused)
+    pub nv_enc_reconfigure_encoder: *mut c_void,                       // 264 (unused)
+    pub reserved1: *mut c_void,                                        // 272
+    pub nv_enc_create_mv_buffer: *mut c_void,                          // 280 (unused)
+    pub nv_enc_destroy_mv_buffer: *mut c_void,                         // 288 (unused)
+    pub nv_enc_run_motion_estimation_only: *mut c_void,                // 296 (unused)
+    pub nv_enc_get_last_error_string: PfnNvEncGetLastErrorString,      // 304
+    pub nv_enc_set_io_cuda_streams: *mut c_void,                       // 312 (unused)
+    pub nv_enc_get_encode_preset_config_ex: PfnNvEncGetEncodePresetConfigEx, // 320
+    pub nv_enc_get_sequence_param_ex: *mut c_void,                     // 328 (unused)
+    pub nv_enc_restore_encoder_state: *mut c_void,                     // 336 (unused)
+    pub nv_enc_lookahead_picture: *mut c_void,                         // 344 (unused)
+    pub reserved2: [*mut c_void; 275],                                 // 352..2552
+}
+
+impl Default for NvEncodeApiFunctionList {
+    fn default() -> Self {
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+// ─── NVENC function pointer typedefs (subset we use) ────────────────────────
+
+pub type PfnNvEncOpenEncodeSessionEx = Option<
+    unsafe extern "C" fn(
+        params: *mut NvEncOpenEncodeSessionExParams,
+        encoder: *mut *mut c_void,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncGetEncodePresetConfigEx = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        encode_guid: Guid,
+        preset_guid: Guid,
+        tuning_info: u32,
+        preset_config: *mut NvEncPresetConfig,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncInitializeEncoder = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        params: *mut NvEncInitializeParams,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncCreateInputBuffer = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        params: *mut NvEncCreateInputBuffer,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncDestroyInputBuffer = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus,
+>;
+pub type PfnNvEncCreateBitstreamBuffer = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        params: *mut NvEncCreateBitstreamBuffer,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncDestroyBitstreamBuffer = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, bitstream_buffer: *mut c_void) -> NvEncStatus,
+>;
+pub type PfnNvEncEncodePicture = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncPicParams) -> NvEncStatus,
+>;
+pub type PfnNvEncLockBitstream = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        params: *mut NvEncLockBitstream,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncUnlockBitstream = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, output_buffer: *mut c_void) -> NvEncStatus,
+>;
+pub type PfnNvEncLockInputBuffer = Option<
+    unsafe extern "C" fn(
+        encoder: *mut c_void,
+        params: *mut NvEncLockInputBuffer,
+    ) -> NvEncStatus,
+>;
+pub type PfnNvEncUnlockInputBuffer = Option<
+    unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus,
+>;
+pub type PfnNvEncDestroyEncoder =
+    Option<unsafe extern "C" fn(encoder: *mut c_void) -> NvEncStatus>;
+pub type PfnNvEncGetLastErrorString =
+    Option<unsafe extern "C" fn(encoder: *mut c_void) -> *const c_char>;
 
 // ─────────────────────────── compile-time size guards ───────────────────────
 
@@ -499,6 +1051,39 @@ const _: () = {
     }
     if std::mem::size_of::<CUVIDDECODECAPS>() != 88 {
         panic!("CUVIDDECODECAPS layout drift");
+    }
+    if std::mem::size_of::<Guid>() != 16 {
+        panic!("Guid layout drift");
+    }
+    if std::mem::size_of::<NvEncOpenEncodeSessionExParams>() != 1552 {
+        panic!("NvEncOpenEncodeSessionExParams layout drift");
+    }
+    if std::mem::size_of::<NvEncodeApiFunctionList>() != 2552 {
+        panic!("NvEncodeApiFunctionList layout drift");
+    }
+    if std::mem::size_of::<NvEncInitializeParams>() != 1808 {
+        panic!("NvEncInitializeParams layout drift");
+    }
+    if std::mem::size_of::<NvEncConfig>() != 3584 {
+        panic!("NvEncConfig layout drift");
+    }
+    if std::mem::size_of::<NvEncPresetConfig>() != 5128 {
+        panic!("NvEncPresetConfig layout drift");
+    }
+    if std::mem::size_of::<NvEncCreateInputBuffer>() != 776 {
+        panic!("NvEncCreateInputBuffer layout drift");
+    }
+    if std::mem::size_of::<NvEncCreateBitstreamBuffer>() != 776 {
+        panic!("NvEncCreateBitstreamBuffer layout drift");
+    }
+    if std::mem::size_of::<NvEncLockInputBuffer>() != 1544 {
+        panic!("NvEncLockInputBuffer layout drift");
+    }
+    if std::mem::size_of::<NvEncLockBitstream>() != 1552 {
+        panic!("NvEncLockBitstream layout drift");
+    }
+    if std::mem::size_of::<NvEncPicParams>() != 3360 {
+        panic!("NvEncPicParams layout drift");
     }
 };
 
