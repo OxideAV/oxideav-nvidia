@@ -46,9 +46,7 @@ fn engine_info_finds_rtx_5080_or_skips() {
         dev.api_version
     );
     assert!(
-        dev.extra
-            .iter()
-            .any(|(k, _)| k == "compute_capability"),
+        dev.extra.iter().any(|(k, _)| k == "compute_capability"),
         "compute_capability extra reported"
     );
 
@@ -67,9 +65,7 @@ fn engine_info_finds_rtx_5080_or_skips() {
 fn engine_info_reports_modern_codecs_or_skips() {
     let probes = oxideav_nvidia::engine_info();
     if probes.is_empty() {
-        eprintln!(
-            "engine_info_reports_modern_codecs_or_skips: skipping — no NVIDIA GPU available"
-        );
+        eprintln!("engine_info_reports_modern_codecs_or_skips: skipping — no NVIDIA GPU available");
         return;
     }
     let dev = &probes[0];

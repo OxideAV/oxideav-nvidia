@@ -37,11 +37,11 @@ use oxideav_core::{
 
 use crate::device::{Cuda, CudaContext, CudaDevice, NvError};
 use crate::sys::{
-    self, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO, CUVIDPARSERPARAMS,
-    CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET, CUDA_SUCCESS,
-    CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID,
-    CUDA_VIDEO_DEINTERLACE_WEAVE, CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVID_PKT_ENDOFSTREAM,
-    CUVID_PKT_TIMESTAMP, CUvideodecoder, CUvideoparser, CudaVideoCodec,
+    self, CUvideodecoder, CUvideoparser, CudaVideoCodec, CUDA_SUCCESS,
+    CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID, CUDA_VIDEO_DEINTERLACE_WEAVE,
+    CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO,
+    CUVIDPARSERPARAMS, CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET,
+    CUVID_PKT_ENDOFSTREAM, CUVID_PKT_TIMESTAMP,
 };
 
 /// Number of decode surfaces we ask NVDEC to keep around. The parser
@@ -328,7 +328,11 @@ unsafe extern "C" fn display_callback(
     let mut uv_pitched = vec![0u8; pitch * chroma_h];
 
     let r_y = unsafe {
-        (vt.cu_memcpy_dto_h_v2)(y_pitched.as_mut_ptr() as *mut c_void, dev_ptr, pitch * coded_h)
+        (vt.cu_memcpy_dto_h_v2)(
+            y_pitched.as_mut_ptr() as *mut c_void,
+            dev_ptr,
+            pitch * coded_h,
+        )
     };
     let r_uv = unsafe {
         (vt.cu_memcpy_dto_h_v2)(
@@ -373,8 +377,7 @@ unsafe extern "C" fn display_callback(
         let src_off = src_row * pitch + disp_left;
         let dst_off = row * out_w;
         if src_off + out_w <= y_pitched.len() {
-            y_out[dst_off..dst_off + out_w]
-                .copy_from_slice(&y_pitched[src_off..src_off + out_w]);
+            y_out[dst_off..dst_off + out_w].copy_from_slice(&y_pitched[src_off..src_off + out_w]);
         }
     }
 
@@ -485,9 +488,7 @@ impl NvDecoder {
                 "nvidia: device_index {device_index} out of range (0..{count})"
             )));
         }
-        let dev = cuda
-            .device(device_index as i32)
-            .map_err(map_unsupported)?;
+        let dev = cuda.device(device_index as i32).map_err(map_unsupported)?;
         let ctx = cuda.create_context_for(&dev).map_err(map_unsupported)?;
 
         let state = CallbackState::new();
@@ -552,12 +553,7 @@ impl oxideav_core::Decoder for NvDecoder {
         self.flushed = false;
 
         // Surface any error that fired in a previous callback.
-        if let Some(e) = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|g| g.error.clone())
-        {
+        if let Some(e) = self.state.lock().ok().and_then(|g| g.error.clone()) {
             return Err(Error::other(e));
         }
 
@@ -585,9 +581,7 @@ impl oxideav_core::Decoder for NvDecoder {
             timestamp,
         };
 
-        let r = unsafe {
-            (vt.cuvid_parse_video_data)(self.parser, &mut pkt as *mut _)
-        };
+        let r = unsafe { (vt.cuvid_parse_video_data)(self.parser, &mut pkt as *mut _) };
         if r != CUDA_SUCCESS {
             return Err(Error::other(format!(
                 "cuvidParseVideoData failed: CUresult {r}"
@@ -595,12 +589,7 @@ impl oxideav_core::Decoder for NvDecoder {
         }
 
         // Surface any error queued up by callbacks during the parse.
-        if let Some(e) = self
-            .state
-            .lock()
-            .ok()
-            .and_then(|g| g.error.clone())
-        {
+        if let Some(e) = self.state.lock().ok().and_then(|g| g.error.clone()) {
             return Err(Error::other(e));
         }
 

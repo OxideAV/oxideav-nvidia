@@ -46,8 +46,7 @@ fn nvdec_h264_idr_decodes_to_320x240_i420() {
     );
 
     let params = h264_params();
-    let mut dec =
-        H264NvDecoder::make(&params).expect("H264NvDecoder::make on a CUDA-capable host");
+    let mut dec = H264NvDecoder::make(&params).expect("H264NvDecoder::make on a CUDA-capable host");
 
     // Hand over the whole Annex-B stream as a single packet — the
     // cuvidParser handles SPS/PPS/SEI/IDR splitting internally.

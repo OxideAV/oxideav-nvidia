@@ -99,9 +99,7 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
     match sys::framework() {
         Ok(_) => {}
         Err(e) => {
-            eprintln!(
-                "oxideav-nvidia: library unavailable, skipping registration: {e}"
-            );
+            eprintln!("oxideav-nvidia: library unavailable, skipping registration: {e}");
             return;
         }
     }

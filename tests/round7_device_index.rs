@@ -52,13 +52,15 @@ fn device_index_none_uses_default_device() {
     }
 
     let h264 = h264_video_params();
-    assert!(h264.device_index.is_none(), "default builder must leave device_index = None");
+    assert!(
+        h264.device_index.is_none(),
+        "default builder must leave device_index = None"
+    );
 
     H264NvDecoder::make(&h264).expect("H264NvDecoder::make with device_index = None");
     HevcNvDecoder::make(&hevc_video_params())
         .expect("HevcNvDecoder::make with device_index = None");
-    Av1NvDecoder::make(&av1_video_params())
-        .expect("Av1NvDecoder::make with device_index = None");
+    Av1NvDecoder::make(&av1_video_params()).expect("Av1NvDecoder::make with device_index = None");
     H264NvEncoder::make(&h264_video_params())
         .expect("H264NvEncoder::make with device_index = None");
     HevcNvEncoder::make(&hevc_video_params())

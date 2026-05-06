@@ -12,11 +12,7 @@
 
 #![cfg(all(target_os = "linux", feature = "registry"))]
 
-use oxideav_nvidia::{
-    nvdec_caps,
-    sys::CUDA_VIDEO_CHROMA_FORMAT_420,
-    Cuda, CudaVideoCodec,
-};
+use oxideav_nvidia::{nvdec_caps, sys::CUDA_VIDEO_CHROMA_FORMAT_420, Cuda, CudaVideoCodec};
 
 /// Convenience: run `Cuda::init()` and skip the test on common
 /// "unavailable" failures. Returns `Some(Cuda)` if we should proceed,
@@ -131,7 +127,11 @@ fn nvdec_h264_supported_on_device_zero() {
         caps.is_supported, 1,
         "NVDEC reported H264 4:2:0 8-bit unsupported on this GPU"
     );
-    assert!(caps.max_width >= 1920, "max_width too small: {}", caps.max_width);
+    assert!(
+        caps.max_width >= 1920,
+        "max_width too small: {}",
+        caps.max_width
+    );
     assert!(
         caps.max_height >= 1080,
         "max_height too small: {}",

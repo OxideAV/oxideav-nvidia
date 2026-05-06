@@ -223,11 +223,13 @@ fn annotate_encode(ctx: &CudaContext, codecs: &mut [HwCodecCaps]) -> Result<(), 
     let fns = nvenc_function_table()?;
 
     // ── open a throwaway encode session ────────────────────────────
-    let mut sess = NvEncOpenEncodeSessionExParams::default();
-    sess.version = NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER;
-    sess.device_type = NV_ENC_DEVICE_TYPE_CUDA;
-    sess.device = ctx.raw();
-    sess.api_version = NVENCAPI_VERSION;
+    let mut sess = NvEncOpenEncodeSessionExParams {
+        version: NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER,
+        device_type: NV_ENC_DEVICE_TYPE_CUDA,
+        device: ctx.raw(),
+        api_version: NVENCAPI_VERSION,
+        ..Default::default()
+    };
 
     let open = fns
         .nv_enc_open_encode_session_ex
@@ -253,7 +255,7 @@ fn annotate_encode(ctx: &CudaContext, codecs: &mut [HwCodecCaps]) -> Result<(), 
     };
 
     for &(guid, id) in ENCODE_CODECS {
-        if !supported_guids.iter().any(|g| *g == guid) {
+        if !supported_guids.contains(&guid) {
             continue;
         }
         // Locate the matching cap entry (decode entry created in
@@ -313,10 +315,11 @@ fn annotate_encode(ctx: &CudaContext, codecs: &mut [HwCodecCaps]) -> Result<(), 
 }
 
 fn caps_param(which: u32) -> NvEncCapsParam {
-    let mut p = NvEncCapsParam::default();
-    p.version = NV_ENC_CAPS_PARAM_VER;
-    p.caps_to_query = which;
-    p
+    NvEncCapsParam {
+        version: NV_ENC_CAPS_PARAM_VER,
+        caps_to_query: which,
+        ..Default::default()
+    }
 }
 
 fn enumerate_encode_guids(

@@ -379,21 +379,16 @@ impl Default for CUVIDPARSERPARAMS {
 // libcuda
 pub type FnCuInit = unsafe extern "C" fn(flags: u32) -> CUresult;
 
-pub type FnCuDeviceGet =
-    unsafe extern "C" fn(device: *mut CUdevice, ordinal: i32) -> CUresult;
+pub type FnCuDeviceGet = unsafe extern "C" fn(device: *mut CUdevice, ordinal: i32) -> CUresult;
 
 pub type FnCuDeviceGetCount = unsafe extern "C" fn(count: *mut i32) -> CUresult;
 
-pub type FnCuCtxCreateV2 = unsafe extern "C" fn(
-    pctx: *mut CUcontext,
-    flags: u32,
-    dev: CUdevice,
-) -> CUresult;
+pub type FnCuCtxCreateV2 =
+    unsafe extern "C" fn(pctx: *mut CUcontext, flags: u32, dev: CUdevice) -> CUresult;
 
 pub type FnCuCtxDestroyV2 = unsafe extern "C" fn(ctx: CUcontext) -> CUresult;
 
-pub type FnCuMemAllocV2 =
-    unsafe extern "C" fn(dptr: *mut CUdeviceptr, bytesize: usize) -> CUresult;
+pub type FnCuMemAllocV2 = unsafe extern "C" fn(dptr: *mut CUdeviceptr, bytesize: usize) -> CUresult;
 
 pub type FnCuMemFreeV2 = unsafe extern "C" fn(dptr: CUdeviceptr) -> CUresult;
 
@@ -421,10 +416,8 @@ pub type FnCuCtxPopCurrentV2 = unsafe extern "C" fn(ctx_out: *mut CUcontext) -> 
 // them. For Round 1 the function pointer types use opaque pointers so
 // the dlsym + transmute chain is verified without locking us into a
 // particular struct layout.
-pub type FnCuvidCreateDecoder = unsafe extern "C" fn(
-    decoder: *mut CUvideodecoder,
-    create_info: *mut c_void,
-) -> CUresult;
+pub type FnCuvidCreateDecoder =
+    unsafe extern "C" fn(decoder: *mut CUvideodecoder, create_info: *mut c_void) -> CUresult;
 
 pub type FnCuvidDestroyDecoder = unsafe extern "C" fn(decoder: CUvideodecoder) -> CUresult;
 
@@ -450,13 +443,10 @@ pub type FnCuvidCreateVideoParser = unsafe extern "C" fn(
     params: *mut CUVIDPARSERPARAMS,
 ) -> CUresult;
 
-pub type FnCuvidParseVideoData = unsafe extern "C" fn(
-    parser: CUvideoparser,
-    packet: *mut CUVIDSOURCEDATAPACKET,
-) -> CUresult;
+pub type FnCuvidParseVideoData =
+    unsafe extern "C" fn(parser: CUvideoparser, packet: *mut CUVIDSOURCEDATAPACKET) -> CUresult;
 
-pub type FnCuvidDestroyVideoParser =
-    unsafe extern "C" fn(parser: CUvideoparser) -> CUresult;
+pub type FnCuvidDestroyVideoParser = unsafe extern "C" fn(parser: CUvideoparser) -> CUresult;
 
 pub type FnCuMemcpyDtoHV2 =
     unsafe extern "C" fn(dst: *mut c_void, src: CUdeviceptr, bytes: usize) -> CUresult;
@@ -471,8 +461,7 @@ pub type FnCuStreamSynchronize = unsafe extern "C" fn(stream: CUstream) -> CUres
 // rest of the NVENC entry points are reached via that table —
 // `NvEncFunctions` below — so the dynamic-linker stays free of
 // per-driver-version symbol drift.
-pub type FnNvEncodeApiCreateInstance =
-    unsafe extern "C" fn(function_list: *mut c_void) -> i32;
+pub type FnNvEncodeApiCreateInstance = unsafe extern "C" fn(function_list: *mut c_void) -> i32;
 
 // ─────────────────────────── NVENC types ─────────────────────────────────────
 
@@ -563,8 +552,7 @@ pub const NVENCAPI_MAJOR_VERSION: u32 = 12;
 pub const NVENCAPI_MINOR_VERSION: u32 = 1;
 
 /// `NVENCAPI_VERSION = MAJOR | (MINOR << 24) = 0x0100_000C`.
-pub const NVENCAPI_VERSION: u32 =
-    NVENCAPI_MAJOR_VERSION | (NVENCAPI_MINOR_VERSION << 24);
+pub const NVENCAPI_VERSION: u32 = NVENCAPI_MAJOR_VERSION | (NVENCAPI_MINOR_VERSION << 24);
 
 /// `NVENCAPI_STRUCT_VERSION(ver) = NVENCAPI_VERSION | (ver << 16) | (0x7 << 28)`.
 pub const fn nvenc_struct_ver(v: u32) -> u32 {
@@ -657,10 +645,10 @@ impl Default for NvEncCreateInputBuffer {
 #[repr(C)]
 pub struct NvEncCreateBitstreamBuffer {
     pub version: u32,
-    pub size: u32,                     // deprecated
-    pub memory_heap: u32,              // deprecated
+    pub size: u32,        // deprecated
+    pub memory_heap: u32, // deprecated
     pub reserved: u32,
-    pub bitstream_buffer: *mut c_void, // out
+    pub bitstream_buffer: *mut c_void,     // out
     pub bitstream_buffer_ptr: *mut c_void, // reserved
     pub reserved1: [u32; 58],
     pub reserved2: [*mut c_void; 64],
@@ -855,35 +843,35 @@ impl Default for NvEncPresetConfig {
 /// actually fill in; the remainder is reserved + zero.
 #[repr(C)]
 pub struct NvEncInitializeParams {
-    pub version: u32,                      // 0
-    pub encode_guid: Guid,                 // 4
-    pub preset_guid: Guid,                 // 20
-    pub encode_width: u32,                 // 36
-    pub encode_height: u32,                // 40
-    pub dar_width: u32,                    // 44
-    pub dar_height: u32,                   // 48
-    pub frame_rate_num: u32,               // 52
-    pub frame_rate_den: u32,               // 56
-    pub enable_encode_async: u32,          // 60
-    pub enable_ptd: u32,                   // 64
+    pub version: u32,             // 0
+    pub encode_guid: Guid,        // 4
+    pub preset_guid: Guid,        // 20
+    pub encode_width: u32,        // 36
+    pub encode_height: u32,       // 40
+    pub dar_width: u32,           // 44
+    pub dar_height: u32,          // 48
+    pub frame_rate_num: u32,      // 52
+    pub frame_rate_den: u32,      // 56
+    pub enable_encode_async: u32, // 60
+    pub enable_ptd: u32,          // 64
     /// Packed bitfields: reportSliceOffsets:1, enableSubFrameWrite:1,
     /// enableExternalMEHints:1, enableMEOnlyMode:1,
     /// enableWeightedPrediction:1, splitEncodeMode:4,
     /// enableOutputInVidmem:1, enableReconFrameOutput:1,
     /// enableOutputStats:1, reservedBitFields:20.
-    pub flags: u32,                        // 68
-    pub priv_data_size: u32,               // 72
+    pub flags: u32, // 68
+    pub priv_data_size: u32,      // 72
     pub _pad0: u32,
-    pub priv_data: *mut c_void,            // 80
-    pub encode_config: *mut NvEncConfig,   // 88
-    pub max_encode_width: u32,             // 96
-    pub max_encode_height: u32,            // 100
+    pub priv_data: *mut c_void,          // 80
+    pub encode_config: *mut NvEncConfig, // 88
+    pub max_encode_width: u32,           // 96
+    pub max_encode_height: u32,          // 100
     /// `maxMEHintCountsPerBlock[2]` — 2 × 16 bytes.
     pub max_me_hint_counts_per_block: [u8; 32], // 104..136
-    pub tuning_info: u32,                  // 136
-    pub buffer_format: u32,                // 140
-    pub num_state_buffers: u32,            // 144
-    pub output_stats_level: u32,           // 148
+    pub tuning_info: u32,                // 136
+    pub buffer_format: u32,              // 140
+    pub num_state_buffers: u32,          // 144
+    pub output_stats_level: u32,         // 148
     /// Trailing reserved bytes (`reserved[285]` + `reserved2[64]` +
     /// rounding to 1808). Zero-init is correct.
     pub tail: [u8; 1808 - 152],
@@ -903,52 +891,52 @@ impl Default for NvEncInitializeParams {
 /// against the host C compiler.
 #[repr(C)]
 pub struct NvEncodeApiFunctionList {
-    pub version: u32,                                                  // 0
-    pub reserved: u32,                                                 // 4
-    pub nv_enc_open_encode_session: *mut c_void,                       // 8 (unused)
-    pub nv_enc_get_encode_guid_count: PfnNvEncGetEncodeGuidCount,      // 16
-    pub nv_enc_get_encode_profile_guid_count: *mut c_void,             // 24 (unused)
-    pub nv_enc_get_encode_profile_guids: *mut c_void,                  // 32 (unused)
-    pub nv_enc_get_encode_guids: PfnNvEncGetEncodeGuids,               // 40
-    pub nv_enc_get_input_format_count: *mut c_void,                    // 48 (unused)
-    pub nv_enc_get_input_formats: *mut c_void,                         // 56 (unused)
-    pub nv_enc_get_encode_caps: PfnNvEncGetEncodeCaps,                 // 64
-    pub nv_enc_get_encode_preset_count: *mut c_void,                   // 72 (unused)
-    pub nv_enc_get_encode_preset_guids: *mut c_void,                   // 80 (unused)
-    pub nv_enc_get_encode_preset_config: *mut c_void,                  // 88 (unused)
-    pub nv_enc_initialize_encoder: PfnNvEncInitializeEncoder,          // 96
-    pub nv_enc_create_input_buffer: PfnNvEncCreateInputBuffer,         // 104
-    pub nv_enc_destroy_input_buffer: PfnNvEncDestroyInputBuffer,       // 112
-    pub nv_enc_create_bitstream_buffer: PfnNvEncCreateBitstreamBuffer, // 120
-    pub nv_enc_destroy_bitstream_buffer: PfnNvEncDestroyBitstreamBuffer, // 128
-    pub nv_enc_encode_picture: PfnNvEncEncodePicture,                  // 136
-    pub nv_enc_lock_bitstream: PfnNvEncLockBitstream,                  // 144
-    pub nv_enc_unlock_bitstream: PfnNvEncUnlockBitstream,              // 152
-    pub nv_enc_lock_input_buffer: PfnNvEncLockInputBuffer,             // 160
-    pub nv_enc_unlock_input_buffer: PfnNvEncUnlockInputBuffer,         // 168
-    pub nv_enc_get_encode_stats: *mut c_void,                          // 176 (unused)
-    pub nv_enc_get_sequence_params: *mut c_void,                       // 184 (unused)
-    pub nv_enc_register_async_event: *mut c_void,                      // 192 (unused)
-    pub nv_enc_unregister_async_event: *mut c_void,                    // 200 (unused)
-    pub nv_enc_map_input_resource: *mut c_void,                        // 208 (unused)
-    pub nv_enc_unmap_input_resource: *mut c_void,                      // 216 (unused)
-    pub nv_enc_destroy_encoder: PfnNvEncDestroyEncoder,                // 224
-    pub nv_enc_invalidate_ref_frames: *mut c_void,                     // 232 (unused)
-    pub nv_enc_open_encode_session_ex: PfnNvEncOpenEncodeSessionEx,    // 240
-    pub nv_enc_register_resource: *mut c_void,                         // 248 (unused)
-    pub nv_enc_unregister_resource: *mut c_void,                       // 256 (unused)
-    pub nv_enc_reconfigure_encoder: *mut c_void,                       // 264 (unused)
-    pub reserved1: *mut c_void,                                        // 272
-    pub nv_enc_create_mv_buffer: *mut c_void,                          // 280 (unused)
-    pub nv_enc_destroy_mv_buffer: *mut c_void,                         // 288 (unused)
-    pub nv_enc_run_motion_estimation_only: *mut c_void,                // 296 (unused)
-    pub nv_enc_get_last_error_string: PfnNvEncGetLastErrorString,      // 304
-    pub nv_enc_set_io_cuda_streams: *mut c_void,                       // 312 (unused)
+    pub version: u32,                                                        // 0
+    pub reserved: u32,                                                       // 4
+    pub nv_enc_open_encode_session: *mut c_void,                             // 8 (unused)
+    pub nv_enc_get_encode_guid_count: PfnNvEncGetEncodeGuidCount,            // 16
+    pub nv_enc_get_encode_profile_guid_count: *mut c_void,                   // 24 (unused)
+    pub nv_enc_get_encode_profile_guids: *mut c_void,                        // 32 (unused)
+    pub nv_enc_get_encode_guids: PfnNvEncGetEncodeGuids,                     // 40
+    pub nv_enc_get_input_format_count: *mut c_void,                          // 48 (unused)
+    pub nv_enc_get_input_formats: *mut c_void,                               // 56 (unused)
+    pub nv_enc_get_encode_caps: PfnNvEncGetEncodeCaps,                       // 64
+    pub nv_enc_get_encode_preset_count: *mut c_void,                         // 72 (unused)
+    pub nv_enc_get_encode_preset_guids: *mut c_void,                         // 80 (unused)
+    pub nv_enc_get_encode_preset_config: *mut c_void,                        // 88 (unused)
+    pub nv_enc_initialize_encoder: PfnNvEncInitializeEncoder,                // 96
+    pub nv_enc_create_input_buffer: PfnNvEncCreateInputBuffer,               // 104
+    pub nv_enc_destroy_input_buffer: PfnNvEncDestroyInputBuffer,             // 112
+    pub nv_enc_create_bitstream_buffer: PfnNvEncCreateBitstreamBuffer,       // 120
+    pub nv_enc_destroy_bitstream_buffer: PfnNvEncDestroyBitstreamBuffer,     // 128
+    pub nv_enc_encode_picture: PfnNvEncEncodePicture,                        // 136
+    pub nv_enc_lock_bitstream: PfnNvEncLockBitstream,                        // 144
+    pub nv_enc_unlock_bitstream: PfnNvEncUnlockBitstream,                    // 152
+    pub nv_enc_lock_input_buffer: PfnNvEncLockInputBuffer,                   // 160
+    pub nv_enc_unlock_input_buffer: PfnNvEncUnlockInputBuffer,               // 168
+    pub nv_enc_get_encode_stats: *mut c_void,                                // 176 (unused)
+    pub nv_enc_get_sequence_params: *mut c_void,                             // 184 (unused)
+    pub nv_enc_register_async_event: *mut c_void,                            // 192 (unused)
+    pub nv_enc_unregister_async_event: *mut c_void,                          // 200 (unused)
+    pub nv_enc_map_input_resource: *mut c_void,                              // 208 (unused)
+    pub nv_enc_unmap_input_resource: *mut c_void,                            // 216 (unused)
+    pub nv_enc_destroy_encoder: PfnNvEncDestroyEncoder,                      // 224
+    pub nv_enc_invalidate_ref_frames: *mut c_void,                           // 232 (unused)
+    pub nv_enc_open_encode_session_ex: PfnNvEncOpenEncodeSessionEx,          // 240
+    pub nv_enc_register_resource: *mut c_void,                               // 248 (unused)
+    pub nv_enc_unregister_resource: *mut c_void,                             // 256 (unused)
+    pub nv_enc_reconfigure_encoder: *mut c_void,                             // 264 (unused)
+    pub reserved1: *mut c_void,                                              // 272
+    pub nv_enc_create_mv_buffer: *mut c_void,                                // 280 (unused)
+    pub nv_enc_destroy_mv_buffer: *mut c_void,                               // 288 (unused)
+    pub nv_enc_run_motion_estimation_only: *mut c_void,                      // 296 (unused)
+    pub nv_enc_get_last_error_string: PfnNvEncGetLastErrorString,            // 304
+    pub nv_enc_set_io_cuda_streams: *mut c_void,                             // 312 (unused)
     pub nv_enc_get_encode_preset_config_ex: PfnNvEncGetEncodePresetConfigEx, // 320
-    pub nv_enc_get_sequence_param_ex: *mut c_void,                     // 328 (unused)
-    pub nv_enc_restore_encoder_state: *mut c_void,                     // 336 (unused)
-    pub nv_enc_lookahead_picture: *mut c_void,                         // 344 (unused)
-    pub reserved2: [*mut c_void; 275],                                 // 352..2552
+    pub nv_enc_get_sequence_param_ex: *mut c_void,                           // 328 (unused)
+    pub nv_enc_restore_encoder_state: *mut c_void,                           // 336 (unused)
+    pub nv_enc_lookahead_picture: *mut c_void,                               // 344 (unused)
+    pub reserved2: [*mut c_void; 275],                                       // 352..2552
 }
 
 impl Default for NvEncodeApiFunctionList {
@@ -975,20 +963,13 @@ pub type PfnNvEncGetEncodePresetConfigEx = Option<
     ) -> NvEncStatus,
 >;
 pub type PfnNvEncInitializeEncoder = Option<
-    unsafe extern "C" fn(
-        encoder: *mut c_void,
-        params: *mut NvEncInitializeParams,
-    ) -> NvEncStatus,
+    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncInitializeParams) -> NvEncStatus,
 >;
 pub type PfnNvEncCreateInputBuffer = Option<
-    unsafe extern "C" fn(
-        encoder: *mut c_void,
-        params: *mut NvEncCreateInputBuffer,
-    ) -> NvEncStatus,
+    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncCreateInputBuffer) -> NvEncStatus,
 >;
-pub type PfnNvEncDestroyInputBuffer = Option<
-    unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus,
->;
+pub type PfnNvEncDestroyInputBuffer =
+    Option<unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus>;
 pub type PfnNvEncCreateBitstreamBuffer = Option<
     unsafe extern "C" fn(
         encoder: *mut c_void,
@@ -998,29 +979,19 @@ pub type PfnNvEncCreateBitstreamBuffer = Option<
 pub type PfnNvEncDestroyBitstreamBuffer = Option<
     unsafe extern "C" fn(encoder: *mut c_void, bitstream_buffer: *mut c_void) -> NvEncStatus,
 >;
-pub type PfnNvEncEncodePicture = Option<
-    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncPicParams) -> NvEncStatus,
->;
+pub type PfnNvEncEncodePicture =
+    Option<unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncPicParams) -> NvEncStatus>;
 pub type PfnNvEncLockBitstream = Option<
-    unsafe extern "C" fn(
-        encoder: *mut c_void,
-        params: *mut NvEncLockBitstream,
-    ) -> NvEncStatus,
+    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncLockBitstream) -> NvEncStatus,
 >;
-pub type PfnNvEncUnlockBitstream = Option<
-    unsafe extern "C" fn(encoder: *mut c_void, output_buffer: *mut c_void) -> NvEncStatus,
->;
+pub type PfnNvEncUnlockBitstream =
+    Option<unsafe extern "C" fn(encoder: *mut c_void, output_buffer: *mut c_void) -> NvEncStatus>;
 pub type PfnNvEncLockInputBuffer = Option<
-    unsafe extern "C" fn(
-        encoder: *mut c_void,
-        params: *mut NvEncLockInputBuffer,
-    ) -> NvEncStatus,
+    unsafe extern "C" fn(encoder: *mut c_void, params: *mut NvEncLockInputBuffer) -> NvEncStatus,
 >;
-pub type PfnNvEncUnlockInputBuffer = Option<
-    unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus,
->;
-pub type PfnNvEncDestroyEncoder =
-    Option<unsafe extern "C" fn(encoder: *mut c_void) -> NvEncStatus>;
+pub type PfnNvEncUnlockInputBuffer =
+    Option<unsafe extern "C" fn(encoder: *mut c_void, input_buffer: *mut c_void) -> NvEncStatus>;
+pub type PfnNvEncDestroyEncoder = Option<unsafe extern "C" fn(encoder: *mut c_void) -> NvEncStatus>;
 pub type PfnNvEncGetLastErrorString =
     Option<unsafe extern "C" fn(encoder: *mut c_void) -> *const c_char>;
 
@@ -1034,9 +1005,8 @@ pub type PfnNvEncGetLastErrorString =
 
 /// `NvEncGetEncodeGUIDCount` — writes into `*encode_guid_count` the
 /// number of codec GUIDs the encoder session can encode to.
-pub type PfnNvEncGetEncodeGuidCount = Option<
-    unsafe extern "C" fn(encoder: *mut c_void, encode_guid_count: *mut u32) -> NvEncStatus,
->;
+pub type PfnNvEncGetEncodeGuidCount =
+    Option<unsafe extern "C" fn(encoder: *mut c_void, encode_guid_count: *mut u32) -> NvEncStatus>;
 
 /// `NvEncGetEncodeGUIDs` — fills `guids` (capacity `guid_array_size`) with
 /// the codec GUIDs the session can encode to. Sets `*guid_count` to the
@@ -1274,17 +1244,9 @@ fn load_vtable() -> Result<Vtable, String> {
         cu_memcpy_dto_h_v2: sym!(libcuda, "cuMemcpyDtoH_v2", FnCuMemcpyDtoHV2),
         cu_stream_synchronize: sym!(libcuda, "cuStreamSynchronize", FnCuStreamSynchronize),
         cuvid_create_decoder: sym!(libnvcuvid, "cuvidCreateDecoder", FnCuvidCreateDecoder),
-        cuvid_destroy_decoder: sym!(
-            libnvcuvid,
-            "cuvidDestroyDecoder",
-            FnCuvidDestroyDecoder
-        ),
+        cuvid_destroy_decoder: sym!(libnvcuvid, "cuvidDestroyDecoder", FnCuvidDestroyDecoder),
         cuvid_decode_picture: sym!(libnvcuvid, "cuvidDecodePicture", FnCuvidDecodePicture),
-        cuvid_map_video_frame_64: sym!(
-            libnvcuvid,
-            "cuvidMapVideoFrame64",
-            FnCuvidMapVideoFrame64
-        ),
+        cuvid_map_video_frame_64: sym!(libnvcuvid, "cuvidMapVideoFrame64", FnCuvidMapVideoFrame64),
         cuvid_unmap_video_frame_64: sym!(
             libnvcuvid,
             "cuvidUnmapVideoFrame64",
@@ -1296,11 +1258,7 @@ fn load_vtable() -> Result<Vtable, String> {
             "cuvidCreateVideoParser",
             FnCuvidCreateVideoParser
         ),
-        cuvid_parse_video_data: sym!(
-            libnvcuvid,
-            "cuvidParseVideoData",
-            FnCuvidParseVideoData
-        ),
+        cuvid_parse_video_data: sym!(libnvcuvid, "cuvidParseVideoData", FnCuvidParseVideoData),
         cuvid_destroy_video_parser: sym!(
             libnvcuvid,
             "cuvidDestroyVideoParser",

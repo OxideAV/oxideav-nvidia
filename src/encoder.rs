@@ -48,15 +48,15 @@ use crate::device::{Cuda, CudaContext, NvError};
 use crate::sys::{
     self, Guid, NvEncConfig, NvEncCreateBitstreamBuffer, NvEncCreateInputBuffer,
     NvEncInitializeParams, NvEncLockBitstream, NvEncLockInputBuffer,
-    NvEncOpenEncodeSessionExParams, NvEncPicParams, NvEncPresetConfig,
-    NvEncodeApiFunctionList, NV_ENCODE_API_FUNCTION_LIST_VER, NV_ENC_BUFFER_FORMAT_NV12,
+    NvEncOpenEncodeSessionExParams, NvEncPicParams, NvEncPresetConfig, NvEncodeApiFunctionList,
+    NVENCAPI_VERSION, NV_ENCODE_API_FUNCTION_LIST_VER, NV_ENC_BUFFER_FORMAT_NV12,
     NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID, NV_ENC_CONFIG_VER,
     NV_ENC_CREATE_BITSTREAM_BUFFER_VER, NV_ENC_CREATE_INPUT_BUFFER_VER, NV_ENC_DEVICE_TYPE_CUDA,
-    NV_ENC_H264_PROFILE_HIGH_GUID, NV_ENC_HEVC_PROFILE_MAIN_GUID,
-    NV_ENC_INITIALIZE_PARAMS_VER, NV_ENC_LOCK_BITSTREAM_VER, NV_ENC_LOCK_INPUT_BUFFER_VER,
-    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_PIC_PARAMS_VER,
-    NV_ENC_PIC_STRUCT_FRAME, NV_ENC_PRESET_CONFIG_VER, NV_ENC_PRESET_P4_GUID, NV_ENC_SUCCESS,
-    NV_ENC_TUNING_INFO_LOW_LATENCY, NVENCAPI_VERSION,
+    NV_ENC_H264_PROFILE_HIGH_GUID, NV_ENC_HEVC_PROFILE_MAIN_GUID, NV_ENC_INITIALIZE_PARAMS_VER,
+    NV_ENC_LOCK_BITSTREAM_VER, NV_ENC_LOCK_INPUT_BUFFER_VER,
+    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_PIC_PARAMS_VER, NV_ENC_PIC_STRUCT_FRAME,
+    NV_ENC_PRESET_CONFIG_VER, NV_ENC_PRESET_P4_GUID, NV_ENC_SUCCESS,
+    NV_ENC_TUNING_INFO_LOW_LATENCY,
 };
 
 // ─────────────────────────── shared NVENC function table ──────────────────────
@@ -161,9 +161,7 @@ impl NvEncoder {
                 "nvidia: device_index {device_index} out of range (0..{count})"
             )));
         }
-        let dev = cuda
-            .device(device_index as i32)
-            .map_err(map_unsupported)?;
+        let dev = cuda.device(device_index as i32).map_err(map_unsupported)?;
         let ctx = cuda.create_context_for(&dev).map_err(map_unsupported)?;
 
         let fns = nvenc_fns().map_err(|e| {
@@ -188,7 +186,12 @@ impl NvEncoder {
             })?)(&mut sess_params, &mut encoder)
         };
         if r != NV_ENC_SUCCESS {
-            return Err(map_nvenc_status(fns, encoder, "nvEncOpenEncodeSessionEx", r));
+            return Err(map_nvenc_status(
+                fns,
+                encoder,
+                "nvEncOpenEncodeSessionEx",
+                r,
+            ));
         }
 
         // ── pick width / height / framerate from caller params ─────────
@@ -358,9 +361,7 @@ impl NvEncoder {
 
         // SAFETY: `dst` is valid for `pitch * (height + chroma_h)`
         // bytes per the NVENC contract for NV12 input buffers.
-        let dst = unsafe {
-            std::slice::from_raw_parts_mut(dst, pitch * (height + chroma_h))
-        };
+        let dst = unsafe { std::slice::from_raw_parts_mut(dst, pitch * (height + chroma_h)) };
 
         // ── Y plane ─────────────────────────────────────────────────
         let y = &frame.planes[0];
@@ -412,33 +413,37 @@ impl NvEncoder {
         let mut lb = NvEncLockBitstream::default();
         lb.version = NV_ENC_LOCK_BITSTREAM_VER;
         lb.output_bitstream = self.output_buffer;
-        let r = unsafe {
-            (fns.nv_enc_lock_bitstream
-                .ok_or_else(|| Error::unsupported("nvidia: nvEncLockBitstream not in fn table"))?)(
-                self.encoder,
-                &mut lb as *mut _,
-            )
-        };
+        let r =
+            unsafe {
+                (fns.nv_enc_lock_bitstream.ok_or_else(|| {
+                    Error::unsupported("nvidia: nvEncLockBitstream not in fn table")
+                })?)(self.encoder, &mut lb as *mut _)
+            };
         if r != NV_ENC_SUCCESS {
             return Err(map_nvenc_status(fns, self.encoder, "nvEncLockBitstream", r));
         }
 
         let size = lb.bitstream_size_in_bytes as usize;
         let data = if size > 0 && !lb.bitstream_buffer_ptr.is_null() {
-            unsafe { std::slice::from_raw_parts(lb.bitstream_buffer_ptr as *const u8, size).to_vec() }
+            unsafe {
+                std::slice::from_raw_parts(lb.bitstream_buffer_ptr as *const u8, size).to_vec()
+            }
         } else {
             Vec::new()
         };
 
         let r2 = unsafe {
-            (fns.nv_enc_unlock_bitstream
-                .ok_or_else(|| Error::unsupported("nvidia: nvEncUnlockBitstream not in fn table"))?)(
-                self.encoder,
-                self.output_buffer,
-            )
+            (fns.nv_enc_unlock_bitstream.ok_or_else(|| {
+                Error::unsupported("nvidia: nvEncUnlockBitstream not in fn table")
+            })?)(self.encoder, self.output_buffer)
         };
         if r2 != NV_ENC_SUCCESS {
-            return Err(map_nvenc_status(fns, self.encoder, "nvEncUnlockBitstream", r2));
+            return Err(map_nvenc_status(
+                fns,
+                self.encoder,
+                "nvEncUnlockBitstream",
+                r2,
+            ));
         }
 
         if data.is_empty() {
@@ -519,7 +524,12 @@ impl Encoder for NvEncoder {
             })?)(self.encoder, &mut lk as *mut _)
         };
         if r != NV_ENC_SUCCESS {
-            return Err(map_nvenc_status(fns, self.encoder, "nvEncLockInputBuffer", r));
+            return Err(map_nvenc_status(
+                fns,
+                self.encoder,
+                "nvEncLockInputBuffer",
+                r,
+            ));
         }
         let upload_result = self.upload_nv12(lk.buffer_data_ptr as *mut u8, lk.pitch, vf);
         let r2 = unsafe {
@@ -554,11 +564,12 @@ impl Encoder for NvEncoder {
         pp.picture_struct = NV_ENC_PIC_STRUCT_FRAME;
         pp.picture_type = 0; // PTD on, driver picks
 
-        let r = unsafe {
-            (fns.nv_enc_encode_picture.ok_or_else(|| {
-                Error::unsupported("nvidia: nvEncEncodePicture not in fn table")
-            })?)(self.encoder, &mut pp as *mut _)
-        };
+        let r =
+            unsafe {
+                (fns.nv_enc_encode_picture.ok_or_else(|| {
+                    Error::unsupported("nvidia: nvEncEncodePicture not in fn table")
+                })?)(self.encoder, &mut pp as *mut _)
+            };
 
         // NVENCSTATUS values: 0 = SUCCESS, 9 = NV_ENC_ERR_INVALID_CALL,
         // 10 = NV_ENC_ERR_OUT_OF_MEMORY, 12 = NV_ENC_ERR_UNSUPPORTED_PARAM,
@@ -585,7 +596,11 @@ impl Encoder for NvEncoder {
                 return Ok(pkt);
             }
         }
-        Err(if self.flushed { Error::Eof } else { Error::NeedMore })
+        Err(if self.flushed {
+            Error::Eof
+        } else {
+            Error::NeedMore
+        })
     }
 
     fn flush(&mut self) -> Result<()> {

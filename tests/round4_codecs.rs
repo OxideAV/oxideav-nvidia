@@ -58,7 +58,10 @@ fn assert_yuv_planes(v: &VideoFrame, w: usize, h: usize) {
         .sum::<f64>()
         / n;
     let stddev = var.sqrt();
-    eprintln!("Y mean={mean:.1} stddev={stddev:.1} ({w}x{h}, stride={})", y.stride);
+    eprintln!(
+        "Y mean={mean:.1} stddev={stddev:.1} ({w}x{h}, stride={})",
+        y.stride
+    );
     assert!(
         stddev > 5.0,
         "Y plane suspiciously flat (stddev={stddev:.2}); decode probably produced black"
@@ -74,7 +77,11 @@ fn nvdec_hevc_idr_decodes_to_320x240_i420() {
         return;
     }
     let bytes = std::fs::read(fixture(HEVC_FIXTURE_REL)).expect("read HEVC fixture");
-    assert!(bytes.len() > 200, "HEVC fixture too small: {} bytes", bytes.len());
+    assert!(
+        bytes.len() > 200,
+        "HEVC fixture too small: {} bytes",
+        bytes.len()
+    );
 
     let params = CodecParameters::video(CodecId::new("hevc"));
     let mut dec = HevcNvDecoder::make(&params).expect("HevcNvDecoder::make on a CUDA host");
@@ -105,7 +112,11 @@ fn nvdec_av1_idr_decodes_to_320x240_i420() {
         return;
     }
     let bytes = std::fs::read(fixture(AV1_FIXTURE_REL)).expect("read AV1 fixture");
-    assert!(bytes.len() > 200, "AV1 fixture too small: {} bytes", bytes.len());
+    assert!(
+        bytes.len() > 200,
+        "AV1 fixture too small: {} bytes",
+        bytes.len()
+    );
 
     let params = CodecParameters::video(CodecId::new("av1"));
     let mut dec = Av1NvDecoder::make(&params).expect("Av1NvDecoder::make on a CUDA host");
@@ -149,8 +160,14 @@ fn make_gradient_frame(w: usize, h: usize, t: u8) -> VideoFrame {
         pts: None,
         planes: vec![
             VideoPlane { stride: w, data: y },
-            VideoPlane { stride: cw, data: u },
-            VideoPlane { stride: cw, data: v },
+            VideoPlane {
+                stride: cw,
+                data: u,
+            },
+            VideoPlane {
+                stride: cw,
+                data: v,
+            },
         ],
     }
 }
@@ -231,7 +248,10 @@ fn enc_round_trip(
     }
     drop(enc);
 
-    eprintln!("{codec_id} encoded total = {} bytes from 5 frames", bytes_out.len());
+    eprintln!(
+        "{codec_id} encoded total = {} bytes from 5 frames",
+        bytes_out.len()
+    );
     assert!(
         bytes_out.len() > 100,
         "{codec_id} encoder produced suspiciously few bytes ({})",
@@ -259,10 +279,7 @@ fn enc_round_trip(
         }
     }
     eprintln!("{codec_id} decoded {} frames", decoded.len());
-    assert!(
-        !decoded.is_empty(),
-        "{codec_id} decoder produced no frames"
-    );
+    assert!(!decoded.is_empty(), "{codec_id} decoder produced no frames");
 
     // Best-PSNR-Y across frame pairs.
     let mut best = 0.0f64;

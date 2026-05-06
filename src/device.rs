@@ -22,8 +22,7 @@ use std::sync::OnceLock;
 
 use crate::sys::{
     self, CUcontext, CUdevice, CUresult, Vtable, CUDA_SUCCESS,
-    CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR,
-    CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
+    CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
 };
 
 // ─────────────────────────── Error ────────────────────────────────────────────
@@ -200,7 +199,11 @@ impl CudaDevice {
         unsafe {
             check(
                 vt,
-                (vt.cu_device_get_name)(buf.as_mut_ptr() as *mut c_char, buf.len() as i32, self.handle),
+                (vt.cu_device_get_name)(
+                    buf.as_mut_ptr() as *mut c_char,
+                    buf.len() as i32,
+                    self.handle,
+                ),
             )?;
             // Buffer is NUL-terminated by the driver.
             let cstr = CStr::from_ptr(buf.as_ptr() as *const c_char);
