@@ -1328,9 +1328,18 @@ mod tests {
     use super::*;
 
     /// Smoke test: all three libraries on this machine load cleanly.
+    /// Skip-friendly — CI runners without the NVIDIA driver stack
+    /// (no libcuda.so.1 / libnvcuvid.so.1 / libnvidia-encode.so.1)
+    /// `eprintln!` and return rather than fail the suite.
     #[test]
     fn frameworks_load() {
-        let fw = framework().expect("framework load");
+        let fw = match framework() {
+            Ok(fw) => fw,
+            Err(e) => {
+                eprintln!("oxideav-nvidia: framework unavailable, skipping: {e}");
+                return;
+            }
+        };
         let _: libloading::Symbol<unsafe extern "C" fn()> =
             unsafe { fw.libcuda.get(b"cuInit\0").expect("cuInit symbol") };
         let _: libloading::Symbol<unsafe extern "C" fn()> = unsafe {
@@ -1345,9 +1354,15 @@ mod tests {
         };
     }
 
-    /// Verify the vtable resolves all symbols.
+    /// Verify the vtable resolves all symbols. Skip-friendly when
+    /// the framework can't be loaded (e.g. CI runner without GPU).
     #[test]
     fn vtable_resolves() {
-        vtable().expect("vtable load");
+        match vtable() {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("oxideav-nvidia: vtable unavailable, skipping: {e}");
+            }
+        }
     }
 }
