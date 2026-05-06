@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.2](https://github.com/OxideAV/oxideav-nvidia/compare/v0.0.1...v0.0.2) - 2026-05-06
+
+### Other
+
+- apply rustfmt layout + fix Default::default field-assign + iter.any→contains
+- skip frameworks_load + vtable_resolves on hosts without the driver
+- honour CodecParameters::device_index for CUDA device selection
+- implement engine_info() — RTX 5080 enumerates per-codec NVDEC/NVENC caps
+
 ### Added — Round 7
 
 - Decoder + encoder factories honour `CodecParameters::device_index`.
