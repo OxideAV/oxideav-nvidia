@@ -463,17 +463,31 @@ impl NvDecoder {
     /// Build an `NvDecoder` for `codec` with the given codec id label.
     /// `is_annex_b` selects between Annex-B / start-code framed input
     /// (H.264 / HEVC) and the codec's native framing (AV1 raw OBUs).
+    ///
+    /// Honours `params.device_index`: `None` selects ordinal 0 (the
+    /// historical default); `Some(i)` selects ordinal `i` and matches
+    /// the index in the [`crate::engine::engine_info`] result. An
+    /// out-of-range index returns `Error::Unsupported`.
     fn make_for(
         codec: CudaVideoCodec,
         codec_id: &str,
         is_annex_b: bool,
+        params: &CodecParameters,
     ) -> Result<Box<dyn oxideav_core::Decoder>> {
         let cuda = Cuda::init().map_err(map_unsupported)?;
         let count = cuda.device_count().map_err(map_unsupported)?;
         if count == 0 {
             return Err(Error::unsupported("nvidia: no CUDA devices visible"));
         }
-        let dev = cuda.device(0).map_err(map_unsupported)?;
+        let device_index = params.device_index.unwrap_or(0);
+        if device_index >= count {
+            return Err(Error::unsupported(format!(
+                "nvidia: device_index {device_index} out of range (0..{count})"
+            )));
+        }
+        let dev = cuda
+            .device(device_index as i32)
+            .map_err(map_unsupported)?;
         let ctx = cuda.create_context_for(&dev).map_err(map_unsupported)?;
 
         let state = CallbackState::new();
@@ -674,8 +688,11 @@ impl H264NvDecoder {
     /// Standard codec-registry factory. Maps any
     /// driver-unavailable / no-device condition to `Error::Unsupported`
     /// so the registry falls back to a software decoder.
-    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::H264, "h264", true)
+    ///
+    /// Honours `params.device_index` for CUDA device selection — see
+    /// [`NvDecoder::make_for`] for details.
+    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::H264, "h264", true, params)
     }
 }
 
@@ -683,8 +700,8 @@ impl H264NvDecoder {
 pub struct HevcNvDecoder;
 
 impl HevcNvDecoder {
-    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::Hevc, "hevc", true)
+    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::Hevc, "hevc", true, params)
     }
 }
 
@@ -695,8 +712,8 @@ impl HevcNvDecoder {
 pub struct Av1NvDecoder;
 
 impl Av1NvDecoder {
-    pub fn make(_params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::Av1, "av1", false)
+    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        NvDecoder::make_for(CudaVideoCodec::Av1, "av1", false, params)
     }
 }
 

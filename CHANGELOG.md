@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 7
+
+- Decoder + encoder factories honour `CodecParameters::device_index`.
+  None / Some(0) selects the first CUDA device; out-of-range indices
+  error cleanly. `engine_info()` ordering is preserved (index 0 ==
+  ordinal 0). All five public factories (`H264NvDecoder`,
+  `HevcNvDecoder`, `Av1NvDecoder`, `H264NvEncoder`, `HevcNvEncoder`)
+  read `params.device_index.unwrap_or(0)`, validate it against
+  `Cuda::device_count()`, and bind the resulting `CudaContext` to that
+  ordinal.
+- New integration test `tests/round7_device_index.rs` exercises every
+  factory through three matrix points (None, `Some(0)`, `Some(99)`)
+  and skips cleanly with `eprintln!` on no-GPU hosts.
+
 ### Added — Round 6
 
 - New module `engine` (gated behind the default-on `registry` feature)

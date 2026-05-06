@@ -139,6 +139,11 @@ unsafe impl Send for NvEncoder {}
 impl NvEncoder {
     /// Build an encoder for `codec_guid` (H.264 or HEVC), labelled
     /// with `codec_id`, using the given profile.
+    ///
+    /// Honours `params.device_index`: `None` selects ordinal 0 (the
+    /// historical default); `Some(i)` selects ordinal `i` and matches
+    /// the index in the [`crate::engine::engine_info`] result. An
+    /// out-of-range index returns `Error::Unsupported`.
     fn make_for(
         codec_guid: Guid,
         profile_guid: Guid,
@@ -150,7 +155,15 @@ impl NvEncoder {
         if count == 0 {
             return Err(Error::unsupported("nvidia: no CUDA devices visible"));
         }
-        let dev = cuda.device(0).map_err(map_unsupported)?;
+        let device_index = params.device_index.unwrap_or(0);
+        if device_index >= count {
+            return Err(Error::unsupported(format!(
+                "nvidia: device_index {device_index} out of range (0..{count})"
+            )));
+        }
+        let dev = cuda
+            .device(device_index as i32)
+            .map_err(map_unsupported)?;
         let ctx = cuda.create_context_for(&dev).map_err(map_unsupported)?;
 
         let fns = nvenc_fns().map_err(|e| {
