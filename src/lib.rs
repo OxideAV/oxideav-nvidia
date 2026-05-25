@@ -72,7 +72,7 @@ pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
 
 #[cfg(feature = "registry")]
-pub use decoder::{Av1NvDecoder, H264NvDecoder, HevcNvDecoder, NvDecoder};
+pub use decoder::{Av1NvDecoder, H264NvDecoder, HevcNvDecoder, NvDecoder, Vp9NvDecoder};
 
 #[cfg(feature = "registry")]
 pub use encoder::{H264NvEncoder, HevcNvEncoder, NvEncoder};
@@ -199,6 +199,29 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"AV01"),
                 CodecTag::fourcc(b"av01"),
                 CodecTag::matroska("V_AV1"),
+            ])
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
+    );
+
+    // ── VP9 decoder via NVDEC (Maxwell GM206+) ────────────────────────────
+    // Tags cover MP4 (`vp09`), legacy fourcc shorthand (`VP90`), and
+    // Matroska/WebM (`V_VP9`). VP9 NVENC does not exist (NVIDIA chose
+    // not to ship one); only the decode side is registered.
+    let vp9_caps = CodecCapabilities::video("vp9_nvdec")
+        .with_lossy(true)
+        .with_intra_only(false)
+        .with_hardware(true)
+        .with_priority(5);
+
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("vp9"))
+            .capabilities(vp9_caps.with_decode())
+            .decoder(decoder::Vp9NvDecoder::make)
+            .tags([
+                CodecTag::fourcc(b"vp09"),
+                CodecTag::fourcc(b"VP90"),
+                CodecTag::matroska("V_VP9"),
             ])
             .with_engine_id("nvidia")
             .with_engine_probe(engine::engine_info),

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 8
+
+- New public type `decoder::Vp9NvDecoder` implementing
+  `oxideav_core::Decoder` via NVDEC. The cuvidParser pipeline is
+  already codec-agnostic; the wrapper just selects
+  `CudaVideoCodec::Vp9` and leaves `bAnnexb = 0` (VP9 has its own
+  superframe / IVF framing, no Annex-B start codes).
+- Pre-flight `cuvidGetDecoderCaps(Vp9, 4:2:0, 8-bit)` check in
+  `Vp9NvDecoder::make` surfaces `Error::Unsupported` early on
+  hosts where NVDEC reports VP9 as unsupported (pre-GM206 silicon,
+  datacenter SKUs without NVDEC) so the registry can fall back to
+  the pure-Rust `oxideav-vp9` decoder without first paying the cost
+  of creating a parser that would fail later inside the sequence
+  callback.
+- `register()` wires the VP9 NVDEC factory at `priority(5)` with
+  tags `vp09` (MP4), `VP90` (AVI fourcc), and `V_VP9` (Matroska /
+  WebM). VP9 NVENC is intentionally **not** registered — NVIDIA
+  never shipped a VP9 encoder.
+- Public re-export `pub use decoder::Vp9NvDecoder` (gated behind
+  `registry`).
+- New integration test `tests/round8_vp9.rs` covers three
+  structural properties without committing a VP9 fixture (which
+  would duplicate the corpus carried by `oxideav-vp9`):
+  - `vp9_make_returns_unsupported_with_no_gpu` — the factory must
+    `Err(_)` cleanly on no-GPU hosts so the registry can fall
+    back; must never panic.
+  - `vp9_make_constructs_decoder_on_supported_host` — on a
+    CUDA-capable host where NVDEC reports VP9 support, the
+    factory builds an `oxideav_core::Decoder` end-to-end.
+  - `engine_info_lists_vp9_decode` — on a CUDA-capable host the
+    `engine_info()` probe lists `vp9` with `decode = true`,
+    `encode = false`, and `max_width >= 1920`.
+  Each test is skip-friendly: no NVIDIA driver / no GPU / no
+  NVDEC-VP9 support → `eprintln!` and `return`, so the suite
+  passes on every CI worker and on the developer's RTX 5080 box.
+
 ## [0.0.2](https://github.com/OxideAV/oxideav-nvidia/compare/v0.0.1...v0.0.2) - 2026-05-06
 
 ### Other

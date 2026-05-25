@@ -706,6 +706,50 @@ impl Av1NvDecoder {
     }
 }
 
+/// NVDEC-backed VP9 decoder.
+///
+/// VP9 frames carry their own framing inside the bitstream
+/// (uncompressed header byte + superframe index) and the cuvidParser
+/// understands both the IVF wrapper and raw VP9 superframes natively,
+/// so we leave `bAnnexb` at 0 — Annex-B start-code framing is
+/// specific to H.264 / HEVC and does not apply.
+///
+/// NVDEC supports VP9 from Maxwell GM206 (GTX 950) onwards; 10-bit
+/// Profile 2 support starts on Pascal. The factory returns
+/// `Error::Unsupported` on hosts where `cuvidGetDecoderCaps` reports
+/// VP9 / 4:2:0 / 8-bit as unsupported (older silicon, datacenter SKUs
+/// without NVDEC) so the registry falls back to the pure-Rust VP9
+/// decoder.
+pub struct Vp9NvDecoder;
+
+impl Vp9NvDecoder {
+    /// Standard codec-registry factory. See [`NvDecoder::make_for`]
+    /// for the device_index semantics.
+    ///
+    /// Pre-checks NVDEC VP9 capability via `cuvidGetDecoderCaps` and
+    /// surfaces `Error::Unsupported` if VP9 isn't decodable on the
+    /// selected device — the parser would otherwise fail later inside
+    /// the sequence callback, where the error is harder to surface.
+    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        // Skip-friendly capability pre-check. If the driver isn't even
+        // loaded we'll surface NotAvailable through NvDecoder::make_for
+        // below; if it loads but VP9 isn't supported (very old NVDEC
+        // silicon) we want to fall back to SW immediately rather than
+        // construct a parser that will then fail in the sequence
+        // callback with an opaque CUresult.
+        if let Ok(caps) =
+            crate::nvdec::nvdec_caps(CudaVideoCodec::Vp9, CUDA_VIDEO_CHROMA_FORMAT_420, 8)
+        {
+            if caps.is_supported == 0 {
+                return Err(Error::unsupported(
+                    "nvidia: NVDEC VP9 / 4:2:0 / 8-bit unsupported on this device",
+                ));
+            }
+        }
+        NvDecoder::make_for(CudaVideoCodec::Vp9, "vp9", false, params)
+    }
+}
+
 /// Map every `NvError` from initialisation into `Error::Unsupported`
 /// so a missing driver / no GPU host falls back to the pure-Rust
 /// decoder rather than panicking.

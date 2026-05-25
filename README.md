@@ -48,13 +48,37 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 | H.264        | **shipped (Round 3)** | **shipped (Round 4)** |
 | HEVC         | **shipped (Round 4)** | **shipped (Round 4)** |
 | AV1          | **shipped (Round 4, Blackwell+)** | planned (Ada Lovelace+) |
-| VP9          | planned        | —              |
+| VP9          | **shipped (Round 8, Maxwell GM206+)** | — (NVENC ships no VP9 encoder) |
 | MPEG-2       | planned        | —              |
 | MPEG-4 Pt 2  | planned        | —              |
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 4 (this commit): generalises the cuvidParser pipeline across
+Round 8 (this commit): adds NVDEC VP9 decoder support. The
+cuvidParser pipeline being codec-agnostic since Round 4 means VP9 is
+a thin wrapper:
+
+- New public type `decoder::Vp9NvDecoder`. The cuvidParser handles
+  VP9's superframe / uncompressed-header framing natively (no
+  Annex-B), so the wrapper just selects `CudaVideoCodec::Vp9` and
+  leaves `bAnnexb = 0`.
+- Pre-flight capability check via `cuvidGetDecoderCaps(Vp9, 4:2:0,
+  8-bit)` surfaces `Error::Unsupported` on hosts where NVDEC reports
+  VP9 as unsupported (pre-GM206 silicon, datacenter SKUs without
+  NVDEC) so the registry falls back to the pure-Rust `oxideav-vp9`
+  decoder.
+- `register()` wires the VP9 NVDEC factory with `priority(5)` and
+  the standard tag set: `vp09` (MP4), `VP90` (AVI fourcc), and
+  `V_VP9` (Matroska/WebM). VP9 NVENC is intentionally **not**
+  registered — NVIDIA never shipped a VP9 encoder.
+- New integration test `tests/round8_vp9.rs` confirms (a) the VP9
+  registry path produces an `Unsupported` error cleanly on no-GPU
+  hosts rather than panicking, (b) the factory constructs
+  successfully on CUDA-capable hosts where NVDEC reports VP9
+  support, and (c) the `engine_info` probe reports VP9 alongside
+  the other codecs.
+
+Round 4 (previous commit): generalises the cuvidParser pipeline across
 codecs so the same `NvDecoder` powers H.264 / HEVC / AV1 (raw OBU)
 decoding, and ships H.264 + HEVC NVENC encoders.
 
