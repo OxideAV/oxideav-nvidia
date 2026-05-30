@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.3](https://github.com/OxideAV/oxideav-nvidia/compare/v0.0.2...v0.0.3) - 2026-05-25
+
+### Other
+
+- add Vp9NvDecoder + register VP9 NVDEC factory (Round 8)
+
 ### Added — Round 8
 
 - New public type `decoder::Vp9NvDecoder` implementing
