@@ -49,12 +49,43 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 | HEVC         | **shipped (Round 4)** | **shipped (Round 4)** |
 | AV1          | **shipped (Round 4, Blackwell+)** | planned (Ada Lovelace+) |
 | VP9          | **shipped (Round 8, Maxwell GM206+)** | — (NVENC ships no VP9 encoder) |
-| MPEG-2       | planned        | —              |
+| MPEG-2       | **shipped (Round 9, Fermi+)** | — (NVENC ships no MPEG-2 encoder) |
 | MPEG-4 Pt 2  | planned        | —              |
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 8 (this commit): adds NVDEC VP9 decoder support. The
+Round 9 (this commit): adds NVDEC MPEG-2 Video (ISO/IEC 13818-2)
+decoder support. With the cuvidParser pipeline already
+codec-agnostic, MPEG-2 follows the VP9 / AV1 wrapper template
+exactly:
+
+- New public type `decoder::Mpeg2NvDecoder`. MPEG-2 picture / slice
+  start codes are handled by the parser; the wrapper just selects
+  `CudaVideoCodec::Mpeg2` and leaves `bAnnexb = 0` (Annex-B framing
+  is an H.264 / HEVC NAL-prefix convention and does not apply to
+  MPEG-2's `0x000001` start codes).
+- Pre-flight `cuvidGetDecoderCaps(Mpeg2, 4:2:0, 8-bit)` check in
+  `Mpeg2NvDecoder::make` surfaces `Error::Unsupported` early on
+  hosts where NVDEC reports MPEG-2 as unsupported (datacenter SKUs
+  without an NVDEC video engine) so the registry falls back to the
+  pure-Rust `oxideav-mpeg12video` decoder without first paying the
+  cost of constructing a parser that would fail later inside the
+  sequence callback.
+- `register()` wires the MPEG-2 NVDEC factory at `priority(5)` with
+  the full QuickTime / MP4 fourcc tag family — `mp2v`, `MPG2`,
+  `mpg2`, `hdv2`, `m2v1` — plus Matroska's `V_MPEG2`. MPEG-2 NVENC
+  is intentionally not registered: NVIDIA never shipped an MPEG-2
+  encoder.
+- Public re-export `pub use decoder::Mpeg2NvDecoder` (gated behind
+  `registry`).
+- New integration test `tests/round9_mpeg2.rs` covers (a) the
+  MPEG-2 registry path produces an `Unsupported` error cleanly on
+  no-GPU hosts rather than panicking, (b) the factory constructs
+  successfully on CUDA-capable hosts where NVDEC reports MPEG-2
+  support, and (c) the `engine_info` probe lists `mpeg2video`
+  alongside the other codecs.
+
+Round 8 (previous commit): adds NVDEC VP9 decoder support. The
 cuvidParser pipeline being codec-agnostic since Round 4 means VP9 is
 a thin wrapper:
 

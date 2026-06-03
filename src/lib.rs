@@ -72,7 +72,9 @@ pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
 
 #[cfg(feature = "registry")]
-pub use decoder::{Av1NvDecoder, H264NvDecoder, HevcNvDecoder, NvDecoder, Vp9NvDecoder};
+pub use decoder::{
+    Av1NvDecoder, H264NvDecoder, HevcNvDecoder, Mpeg2NvDecoder, NvDecoder, Vp9NvDecoder,
+};
 
 #[cfg(feature = "registry")]
 pub use encoder::{H264NvEncoder, HevcNvEncoder, NvEncoder};
@@ -222,6 +224,32 @@ pub fn register(ctx: &mut oxideav_core::RuntimeContext) {
                 CodecTag::fourcc(b"vp09"),
                 CodecTag::fourcc(b"VP90"),
                 CodecTag::matroska("V_VP9"),
+            ])
+            .with_engine_id("nvidia")
+            .with_engine_probe(engine::engine_info),
+    );
+
+    // ── MPEG-2 Video decoder via NVDEC ────────────────────────────────────
+    // Tags cover the QuickTime / MP4 fourcc family (`mp2v`, `MPG2`,
+    // `mpg2`, `hdv2`, `m2v1`) and Matroska (`V_MPEG2`). Encode is not
+    // wired: NVENC does not support MPEG-2 output.
+    let mpeg2_caps = CodecCapabilities::video("mpeg2_nvdec")
+        .with_lossy(true)
+        .with_intra_only(false)
+        .with_hardware(true)
+        .with_priority(5);
+
+    ctx.codecs.register(
+        CodecInfo::new(CodecId::new("mpeg2video"))
+            .capabilities(mpeg2_caps.with_decode())
+            .decoder(decoder::Mpeg2NvDecoder::make)
+            .tags([
+                CodecTag::fourcc(b"mp2v"),
+                CodecTag::fourcc(b"MPG2"),
+                CodecTag::fourcc(b"mpg2"),
+                CodecTag::fourcc(b"hdv2"),
+                CodecTag::fourcc(b"m2v1"),
+                CodecTag::matroska("V_MPEG2"),
             ])
             .with_engine_id("nvidia")
             .with_engine_probe(engine::engine_info),

@@ -750,6 +750,41 @@ impl Vp9NvDecoder {
     }
 }
 
+/// NVDEC-backed MPEG-2 Video (ISO/IEC 13818-2) decoder.
+///
+/// MPEG-2 picture-coding extensions and slice / start-code framing are
+/// part of the bitstream itself; the cuvidParser walks the start-code
+/// stream directly and the codec-agnostic [`NvDecoder`] needs nothing
+/// MPEG-2-specific. The `bAnnexb` flag is left at 0 — Annex-B framing
+/// is the H.264 / HEVC NAL-prefix convention and does not apply to
+/// MPEG-2 picture headers.
+///
+/// NVDEC has shipped MPEG-2 decode on every consumer GPU since Fermi;
+/// availability is therefore close to universal where NVDEC is
+/// present at all. The factory still performs the standard
+/// `cuvidGetDecoderCaps` pre-check so a datacenter SKU without NVDEC
+/// (NVIDIA L4-style "no display engine" cards) falls back cleanly to
+/// the pure-Rust `oxideav-mpeg12video` decoder instead of constructing
+/// a parser that would later fail in the sequence callback.
+pub struct Mpeg2NvDecoder;
+
+impl Mpeg2NvDecoder {
+    /// Standard codec-registry factory. See [`NvDecoder::make_for`]
+    /// for the device_index semantics.
+    pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
+        if let Ok(caps) =
+            crate::nvdec::nvdec_caps(CudaVideoCodec::Mpeg2, CUDA_VIDEO_CHROMA_FORMAT_420, 8)
+        {
+            if caps.is_supported == 0 {
+                return Err(Error::unsupported(
+                    "nvidia: NVDEC MPEG-2 / 4:2:0 / 8-bit unsupported on this device",
+                ));
+            }
+        }
+        NvDecoder::make_for(CudaVideoCodec::Mpeg2, "mpeg2video", false, params)
+    }
+}
+
 /// Map every `NvError` from initialisation into `Error::Unsupported`
 /// so a missing driver / no GPU host falls back to the pure-Rust
 /// decoder rather than panicking.

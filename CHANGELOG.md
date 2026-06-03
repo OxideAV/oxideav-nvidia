@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 9
+
+- New public type `decoder::Mpeg2NvDecoder` implementing
+  `oxideav_core::Decoder` via NVDEC. The cuvidParser pipeline is
+  already codec-agnostic; the wrapper selects
+  `CudaVideoCodec::Mpeg2` and leaves `bAnnexb = 0` (MPEG-2's
+  `0x000001` start codes are walked by the parser directly, distinct
+  from H.264 / HEVC's Annex-B NAL-prefix framing).
+- Pre-flight `cuvidGetDecoderCaps(Mpeg2, 4:2:0, 8-bit)` check in
+  `Mpeg2NvDecoder::make` surfaces `Error::Unsupported` early on
+  hosts where NVDEC reports MPEG-2 as unsupported (datacenter SKUs
+  without a video engine) so the registry falls back to the pure-Rust
+  `oxideav-mpeg12video` decoder without first paying the cost of
+  constructing a parser that would fail later inside the sequence
+  callback.
+- `register()` wires the MPEG-2 NVDEC factory at `priority(5)` with
+  the QuickTime / MP4 fourcc family `mp2v`, `MPG2`, `mpg2`, `hdv2`,
+  `m2v1`, plus Matroska's `V_MPEG2`. MPEG-2 NVENC is intentionally
+  not registered — NVIDIA never shipped an MPEG-2 encoder.
+- Public re-export `pub use decoder::Mpeg2NvDecoder` (gated behind
+  `registry`).
+- New integration test `tests/round9_mpeg2.rs` covers three
+  structural properties without committing an MPEG-2 fixture (which
+  would duplicate the corpus carried by `oxideav-mpeg12video`):
+  - `mpeg2_make_returns_unsupported_with_no_gpu` — the factory must
+    `Err(_)` cleanly on no-GPU hosts so the registry can fall back;
+    must never panic.
+  - `mpeg2_make_constructs_decoder_on_supported_host` — on a
+    CUDA-capable host where NVDEC reports MPEG-2 support, the
+    factory builds an `oxideav_core::Decoder` end-to-end.
+  - `engine_info_lists_mpeg2_decode` — on a CUDA-capable host the
+    `engine_info()` probe lists `mpeg2video` with `decode = true`,
+    `encode = false`, and `max_width >= 1920`.
+  Each test is skip-friendly: no NVIDIA driver / no GPU / no
+  NVDEC-MPEG-2 support → `eprintln!` and `return`, so the suite
+  passes on every CI worker and on the developer's RTX 5080 box.
+
 ## [0.0.3](https://github.com/OxideAV/oxideav-nvidia/compare/v0.0.2...v0.0.3) - 2026-05-25
 
 ### Other
