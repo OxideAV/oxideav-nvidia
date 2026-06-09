@@ -21,7 +21,10 @@ use std::os::raw::c_char;
 use std::sync::OnceLock;
 
 use crate::sys::{
-    self, CUcontext, CUdevice, CUresult, Vtable, CUDA_SUCCESS,
+    self, CUcontext, CUdevice, CUresult, Vtable, CUDA_ERROR_DEINITIALIZED,
+    CUDA_ERROR_INVALID_CONTEXT, CUDA_ERROR_INVALID_DEVICE, CUDA_ERROR_INVALID_VALUE,
+    CUDA_ERROR_NOT_INITIALIZED, CUDA_ERROR_NOT_PERMITTED, CUDA_ERROR_NOT_SUPPORTED,
+    CUDA_ERROR_NO_DEVICE, CUDA_ERROR_OUT_OF_MEMORY, CUDA_ERROR_UNKNOWN, CUDA_SUCCESS,
     CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR,
 };
 
@@ -81,6 +84,136 @@ impl NvError {
             || self.message.contains("dlsym")
             || self.message.contains("not available")
             || self.message.contains("no CUDA")
+    }
+
+    /// Typed view of the underlying `CUresult`.
+    ///
+    /// Maps the well-known driver-API status codes to a [`CudaErrorKind`]
+    /// variant so callers can `match` on the failure category instead of
+    /// substring-matching against [`NvError::message`].
+    ///
+    /// The synthetic code `-1` (no `CUresult` from the driver — used
+    /// when the dlopen / dlsym step itself failed before any CUDA entry
+    /// point ran) maps to [`CudaErrorKind::FrameworkLoad`]. Every code
+    /// the enum doesn't name explicitly flows through unchanged as
+    /// [`CudaErrorKind::Other`] so future driver-status additions
+    /// remain observable without a crate update.
+    pub fn kind(&self) -> CudaErrorKind {
+        CudaErrorKind::from_cu(self.code)
+    }
+}
+
+/// Typed view of `NvError::code` covering the small set of `CUresult`
+/// values this bridge cares about.
+///
+/// The numeric values are part of the public CUDA driver ABI
+/// (`<cuda.h>` `enum cudaError_enum`) — callers can both `match` on the
+/// named variants for the well-known cases and recover the raw code via
+/// [`CudaErrorKind::as_code`] when they need to forward it to logging or
+/// telemetry layers that already understand the driver's numbering.
+///
+/// `FrameworkLoad` is a bridge-internal synthetic kind (raw code `-1`)
+/// used when the dlopen / dlsym step itself failed — the driver never
+/// got a chance to return a `CUresult`. It's distinct from
+/// `NotInitialized` (the driver loaded but `cuInit` wasn't called).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CudaErrorKind {
+    /// `CUDA_SUCCESS` — included for completeness; an `NvError` whose
+    /// `code` is `0` is malformed (success isn't an error), but the
+    /// mapping is total so we name it rather than dropping it into
+    /// `Other(0)`.
+    Success,
+    /// Synthetic: the dlopen / dlsym step failed before any CUDA driver
+    /// entry point ran. The raw `code` is `-1`.
+    FrameworkLoad,
+    /// `CUDA_ERROR_INVALID_VALUE` (code `1`).
+    InvalidValue,
+    /// `CUDA_ERROR_OUT_OF_MEMORY` (code `2`).
+    OutOfMemory,
+    /// `CUDA_ERROR_NOT_INITIALIZED` (code `3`).
+    NotInitialized,
+    /// `CUDA_ERROR_DEINITIALIZED` (code `4`).
+    Deinitialized,
+    /// `CUDA_ERROR_NO_DEVICE` (code `100`) — no NVIDIA-driver-visible
+    /// device. Together with `FrameworkLoad`, the canonical "skip this
+    /// test on a non-NVIDIA host" signal.
+    NoDevice,
+    /// `CUDA_ERROR_INVALID_DEVICE` (code `101`) — ordinal outside
+    /// `[0, device_count)`.
+    InvalidDevice,
+    /// `CUDA_ERROR_INVALID_CONTEXT` (code `201`) — no current context
+    /// where one is required (e.g. `cuvidGetDecoderCaps`), or the
+    /// context handle passed is stale.
+    InvalidContext,
+    /// `CUDA_ERROR_NOT_PERMITTED` (code `800`) — operation refused by
+    /// the driver (container sandbox without `--gpus all` etc.).
+    NotPermitted,
+    /// `CUDA_ERROR_NOT_SUPPORTED` (code `801`) — operation not
+    /// supported on this driver / platform combination.
+    NotSupported,
+    /// `CUDA_ERROR_UNKNOWN` (code `999`) — driver fall-through.
+    Unknown,
+    /// Any other `CUresult` the bridge doesn't name explicitly; the raw
+    /// value is preserved so callers can still report it.
+    Other(CUresult),
+}
+
+impl CudaErrorKind {
+    /// Map a raw `CUresult` (plus the synthetic `-1` framework-load
+    /// code) to a typed kind.
+    pub fn from_cu(code: CUresult) -> Self {
+        match code {
+            CUDA_SUCCESS => Self::Success,
+            -1 => Self::FrameworkLoad,
+            CUDA_ERROR_INVALID_VALUE => Self::InvalidValue,
+            CUDA_ERROR_OUT_OF_MEMORY => Self::OutOfMemory,
+            CUDA_ERROR_NOT_INITIALIZED => Self::NotInitialized,
+            CUDA_ERROR_DEINITIALIZED => Self::Deinitialized,
+            CUDA_ERROR_NO_DEVICE => Self::NoDevice,
+            CUDA_ERROR_INVALID_DEVICE => Self::InvalidDevice,
+            CUDA_ERROR_INVALID_CONTEXT => Self::InvalidContext,
+            CUDA_ERROR_NOT_PERMITTED => Self::NotPermitted,
+            CUDA_ERROR_NOT_SUPPORTED => Self::NotSupported,
+            CUDA_ERROR_UNKNOWN => Self::Unknown,
+            other => Self::Other(other),
+        }
+    }
+
+    /// Round-trip back to the raw `CUresult` carried by the original
+    /// `NvError`. For `Other(code)` this echoes the wrapped value.
+    pub fn as_code(self) -> CUresult {
+        match self {
+            Self::Success => CUDA_SUCCESS,
+            Self::FrameworkLoad => -1,
+            Self::InvalidValue => CUDA_ERROR_INVALID_VALUE,
+            Self::OutOfMemory => CUDA_ERROR_OUT_OF_MEMORY,
+            Self::NotInitialized => CUDA_ERROR_NOT_INITIALIZED,
+            Self::Deinitialized => CUDA_ERROR_DEINITIALIZED,
+            Self::NoDevice => CUDA_ERROR_NO_DEVICE,
+            Self::InvalidDevice => CUDA_ERROR_INVALID_DEVICE,
+            Self::InvalidContext => CUDA_ERROR_INVALID_CONTEXT,
+            Self::NotPermitted => CUDA_ERROR_NOT_PERMITTED,
+            Self::NotSupported => CUDA_ERROR_NOT_SUPPORTED,
+            Self::Unknown => CUDA_ERROR_UNKNOWN,
+            Self::Other(c) => c,
+        }
+    }
+
+    /// True for the kinds that correspond to "no NVIDIA stack present"
+    /// — the typed analogue of [`NvError::is_unavailable`]. Hosts
+    /// without a driver or without an NVIDIA device produce one of
+    /// these; tests use it to skip cleanly.
+    ///
+    /// Includes `FrameworkLoad` (no library), `NoDevice` (driver loaded
+    /// but reports zero devices), and `NotInitialized` (which the
+    /// `Cuda::init` `OnceLock` shouldn't normally let escape — but
+    /// covered for robustness in case a caller bypasses the handle).
+    pub fn is_unavailable(self) -> bool {
+        matches!(
+            self,
+            Self::FrameworkLoad | Self::NoDevice | Self::NotInitialized
+        )
     }
 }
 

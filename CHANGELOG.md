@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Round 10
+
+- New `CudaErrorKind` enum providing a typed view of `NvError::code`.
+  Named variants cover the public CUDA driver-API status codes the
+  bridge inspects today — `InvalidValue`, `OutOfMemory`,
+  `NotInitialized`, `Deinitialized`, `NoDevice`, `InvalidDevice`,
+  `InvalidContext`, `NotPermitted`, `NotSupported`, `Unknown` — plus
+  a synthetic `FrameworkLoad` for the dlopen / dlsym failure path
+  (raw code `-1`) and an `Other(CUresult)` fall-through so unnamed
+  codes remain observable. `#[non_exhaustive]` reserves room for
+  naming further variants without a breaking change.
+- New `NvError::kind()` accessor returning `CudaErrorKind`. Callers
+  that previously substring-matched `NvError::message` to tell "no
+  NVIDIA stack" from "unexpected driver failure" can now `match` on
+  the typed kind directly.
+- New `CudaErrorKind::from_cu(code) -> Self` (pure mapping over
+  `CUresult`) and `CudaErrorKind::as_code(self) -> CUresult`
+  (round-trip back to the raw driver code, including the synthetic
+  `-1`).
+- New `CudaErrorKind::is_unavailable()` mirroring the legacy
+  `NvError::is_unavailable()` string helper on the typed path. The
+  documented set is `FrameworkLoad` / `NoDevice` / `NotInitialized` —
+  the three kinds that correspond to "no NVIDIA stack present" on
+  the host.
+- New named-code constants in `crate::sys` for the codes the typed
+  kind covers (`CUDA_ERROR_INVALID_VALUE` … `CUDA_ERROR_UNKNOWN`),
+  matching the existing `CUDA_SUCCESS` convention so callers that
+  already use the `sys` numeric ABI can spell the codes by name
+  rather than as magic numbers.
+- New integration test `tests/round10_error_kind.rs` covers the
+  pure mapping (`from_cu` ↔ `as_code` round-trip across every named
+  variant + a handful of `Other(code)` cases), the documented
+  `is_unavailable` set, and the `Cuda::init` failure path on hosts
+  without a driver (asserts the typed kind agrees with the legacy
+  string helper).
+
+### Changed — Round 10
+
+- `CudaErrorKind` is exported at the crate root alongside the existing
+  `NvError` re-export so the typed accessor is reachable without a
+  `device::` qualifier.
+
 ### Added — Round 9
 
 - New public type `decoder::Mpeg2NvDecoder` implementing

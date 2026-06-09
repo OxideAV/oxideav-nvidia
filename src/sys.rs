@@ -44,6 +44,39 @@ pub type CUresult = i32;
 /// Success status: `CUDA_SUCCESS == 0`.
 pub const CUDA_SUCCESS: CUresult = 0;
 
+// ─── well-known CUresult codes ────────────────────────────────────────────────
+//
+// Names + numeric values are part of the public CUDA driver ABI
+// (`<cuda.h>` `enum cudaError_enum`). We only spell out the codes the
+// bridge actually inspects (in [`crate::device::CudaErrorKind`]); every
+// other CUresult flows through as `Other(code)`.
+
+/// `CUDA_ERROR_INVALID_VALUE` — argument out of range / NULL where
+/// non-NULL expected.
+pub const CUDA_ERROR_INVALID_VALUE: CUresult = 1;
+/// `CUDA_ERROR_OUT_OF_MEMORY` — driver couldn't allocate enough memory.
+pub const CUDA_ERROR_OUT_OF_MEMORY: CUresult = 2;
+/// `CUDA_ERROR_NOT_INITIALIZED` — `cuInit` not yet called.
+pub const CUDA_ERROR_NOT_INITIALIZED: CUresult = 3;
+/// `CUDA_ERROR_DEINITIALIZED` — driver has been shut down (e.g.
+/// `cuCtxDestroy` after last context torn down at process exit).
+pub const CUDA_ERROR_DEINITIALIZED: CUresult = 4;
+/// `CUDA_ERROR_NO_DEVICE` — `cuDeviceGetCount` would return zero.
+pub const CUDA_ERROR_NO_DEVICE: CUresult = 100;
+/// `CUDA_ERROR_INVALID_DEVICE` — ordinal outside `[0, device_count)`.
+pub const CUDA_ERROR_INVALID_DEVICE: CUresult = 101;
+/// `CUDA_ERROR_INVALID_CONTEXT` — operation requires a current context
+/// and there isn't one (or the one passed is stale).
+pub const CUDA_ERROR_INVALID_CONTEXT: CUresult = 201;
+/// `CUDA_ERROR_NOT_PERMITTED` — operation not permitted on this
+/// device (insufficient permissions / sandboxed container).
+pub const CUDA_ERROR_NOT_PERMITTED: CUresult = 800;
+/// `CUDA_ERROR_NOT_SUPPORTED` — operation not supported on this
+/// platform / driver version.
+pub const CUDA_ERROR_NOT_SUPPORTED: CUresult = 801;
+/// `CUDA_ERROR_UNKNOWN` — driver fall-through bucket.
+pub const CUDA_ERROR_UNKNOWN: CUresult = 999;
+
 /// CUdevice — 32-bit ordinal returned by `cuDeviceGet`.
 pub type CUdevice = i32;
 

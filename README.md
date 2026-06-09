@@ -54,7 +54,38 @@ Hardware factories register with `CodecCapabilities::with_priority(5)` — sligh
 | VC-1         | planned        | —              |
 | JPEG         | planned (NVJPEG, separate lib) | — |
 
-Round 9 (this commit): adds NVDEC MPEG-2 Video (ISO/IEC 13818-2)
+Round 10 (this commit): adds the `CudaErrorKind` typed view over the
+`CUresult` carried by `NvError`. Callers that previously had to
+substring-match `NvError::message` to distinguish "no NVIDIA stack"
+from "unexpected driver failure" can now `match` on the typed kind
+directly:
+
+- New `CudaErrorKind` enum with named variants for the public CUDA
+  driver-API codes the bridge inspects today (`InvalidValue`,
+  `OutOfMemory`, `NotInitialized`, `Deinitialized`, `NoDevice`,
+  `InvalidDevice`, `InvalidContext`, `NotPermitted`, `NotSupported`,
+  `Unknown`) plus a synthetic `FrameworkLoad` for the dlopen / dlsym
+  failure path (raw code `-1`). Unnamed status codes flow through as
+  `Other(CUresult)` so future driver-status additions remain
+  observable without a crate update. `#[non_exhaustive]` reserves
+  room for naming further variants without a breaking change.
+- New named-code constants in `crate::sys` for the codes
+  `CudaErrorKind` covers (`CUDA_ERROR_INVALID_VALUE` … through
+  `CUDA_ERROR_UNKNOWN`), matching the existing `CUDA_SUCCESS`
+  spelling convention.
+- New `NvError::kind()` accessor returning `CudaErrorKind`. The
+  existing string-substring `NvError::is_unavailable()` helper is
+  kept as-is for backwards compatibility; the new
+  `CudaErrorKind::is_unavailable()` mirrors it for the typed path
+  and lights up only on the documented "no NVIDIA stack present"
+  set: `FrameworkLoad` / `NoDevice` / `NotInitialized`.
+- New integration test `tests/round10_error_kind.rs` covers the
+  pure mapping (`from_cu` ↔ `as_code` round-trip across every named
+  variant + a few `Other` cases), the documented `is_unavailable`
+  set, and the `Cuda::init` failure path on hosts without a driver
+  (asserts the typed kind agrees with the legacy string helper).
+
+Round 9 (previous commit): adds NVDEC MPEG-2 Video (ISO/IEC 13818-2)
 decoder support. With the cuvidParser pipeline already
 codec-agnostic, MPEG-2 follows the VP9 / AV1 wrapper template
 exactly:

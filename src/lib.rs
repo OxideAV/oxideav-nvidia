@@ -67,7 +67,7 @@ pub mod encoder;
 #[cfg(feature = "registry")]
 pub mod engine;
 
-pub use device::{Cuda, CudaContext, CudaDevice, NvError};
+pub use device::{Cuda, CudaContext, CudaDevice, CudaErrorKind, NvError};
 pub use nvdec::{nvdec_caps, NvdecCaps};
 pub use sys::CudaVideoCodec;
 
