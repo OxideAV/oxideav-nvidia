@@ -1,5 +1,7 @@
 # oxideav-nvidia
 
+[![CI](https://github.com/OxideAV/oxideav-nvidia/actions/workflows/ci.yml/badge.svg)](https://github.com/OxideAV/oxideav-nvidia/actions/workflows/ci.yml) [![crates.io](https://img.shields.io/crates/v/oxideav-nvidia.svg)](https://crates.io/crates/oxideav-nvidia) [![docs.rs](https://docs.rs/oxideav-nvidia/badge.svg)](https://docs.rs/oxideav-nvidia) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Linux NVIDIA NVDEC + NVENC hardware decode/encode bridge for the [oxideav](https://github.com/OxideAV/oxideav) framework.
 
 ## Why a bridge crate?
