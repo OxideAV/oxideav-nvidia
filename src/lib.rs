@@ -56,6 +56,9 @@
 
 pub mod device;
 pub mod nvdec;
+// internal — raw dlopen FFI plumbing; not part of the stable API
+// (the intended `CudaVideoCodec` type stays visible via the root re-export)
+#[doc(hidden)]
 pub mod sys;
 
 #[cfg(feature = "registry")]
