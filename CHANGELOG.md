@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/OxideAV/oxideav-nvidia/compare/v0.0.3...v0.0.4) - 2026-10-04
+
+### Other
+
+- decode the whole coded area unscaled, crop on the CPU
+- bind the CUDA context on the calling thread for every parser call
+- re-frame avcC / hvcC length-prefixed input to Annex-B for NVDEC
+- hide internal pub surface from rustdoc/semver (fleet rule 2026-09-01)
+- add CI / crates.io / docs.rs / MIT-license badges
+- refresh to current status, drop per-round changelog cruft
+- add CudaErrorKind typed view over NvError::code (Round 10)
+- add Mpeg2NvDecoder + register MPEG-2 NVDEC factory (Round 9)
+
 ### Added — Round 10
 
 - New `CudaErrorKind` enum providing a typed view of `NvError::code`.
