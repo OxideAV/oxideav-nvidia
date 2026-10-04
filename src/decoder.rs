@@ -169,10 +169,17 @@ unsafe extern "C" fn seq_callback(user_data: *mut c_void, fmt: *mut CUVIDEOFORMA
     create.ul_intra_decode_only = 0;
     create.ul_max_width = coded_w as u64;
     create.ul_max_height = coded_h as u64;
-    create.display_left = f.display_left as i16;
-    create.display_top = f.display_top as i16;
-    create.display_right = f.display_right as i16;
-    create.display_bottom = f.display_bottom as i16;
+    // Decode the whole coded area unscaled. NVDEC maps the
+    // `display_*` rectangle onto the `target_*` rectangle, scaling
+    // when the two differ: handing it the stream's cropping window
+    // together with a coded-size target stretched the cropped picture
+    // back up to the coded size (a 100x60 stream coded as 112x64 came
+    // out resampled). The cropping window is applied on the CPU when
+    // the surface is copied out (see the map callback).
+    create.display_left = 0;
+    create.display_top = 0;
+    create.display_right = coded_w as i16;
+    create.display_bottom = coded_h as i16;
     create.output_format = CUDA_VIDEO_SURFACE_FORMAT_NV12;
     create.deinterlace_mode = CUDA_VIDEO_DEINTERLACE_WEAVE;
     create.ul_target_width = coded_w as u64;
