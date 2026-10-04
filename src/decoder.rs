@@ -36,6 +36,7 @@ use oxideav_core::{
 };
 
 use crate::device::{Cuda, CudaContext, CudaDevice, NvError};
+use crate::framing::{ConfigKind, NalFraming};
 use crate::sys::{
     self, CUvideodecoder, CUvideoparser, CudaVideoCodec, CUDA_SUCCESS,
     CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID, CUDA_VIDEO_DEINTERLACE_WEAVE,
@@ -458,6 +459,9 @@ pub struct NvDecoder {
     /// Set after `flush()` so the next empty `receive_frame` returns
     /// `Eof` instead of `NeedMore`.
     flushed: bool,
+    /// Container → Annex-B re-framing (H.264 / HEVC fed from MP4,
+    /// Matroska, … with an `avcC` / `hvcC` record in extradata).
+    framing: NalFraming,
 }
 
 unsafe impl Send for NvDecoder {}
@@ -475,6 +479,7 @@ impl NvDecoder {
         codec: CudaVideoCodec,
         codec_id: &str,
         is_annex_b: bool,
+        config: Option<ConfigKind>,
         params: &CodecParameters,
     ) -> Result<Box<dyn oxideav_core::Decoder>> {
         let cuda = Cuda::init().map_err(map_unsupported)?;
@@ -509,6 +514,9 @@ impl NvDecoder {
             state,
             output_queue: VecDeque::new(),
             flushed: false,
+            framing: config
+                .map(|kind| NalFraming::from_extradata(kind, &params.extradata))
+                .unwrap_or_default(),
         }))
     }
 
@@ -570,13 +578,22 @@ impl oxideav_core::Decoder for NvDecoder {
             flags |= CUVID_PKT_TIMESTAMP as u64;
         }
 
+        // Length-prefixed container samples → the Annex-B byte stream
+        // the parser was configured for (see `crate::framing`).
+        let reframed;
+        let data: &[u8] = if self.framing.is_passthrough() {
+            &packet.data
+        } else {
+            reframed = self.framing.reframe(&packet.data);
+            &reframed
+        };
         let mut pkt = CUVIDSOURCEDATAPACKET {
             flags,
-            payload_size: packet.data.len() as u64,
-            payload: if packet.data.is_empty() {
+            payload_size: data.len() as u64,
+            payload: if data.is_empty() {
                 std::ptr::null()
             } else {
-                packet.data.as_ptr()
+                data.as_ptr()
             },
             timestamp,
         };
@@ -681,7 +698,13 @@ impl H264NvDecoder {
     /// Honours `params.device_index` for CUDA device selection — see
     /// [`NvDecoder::make_for`] for details.
     pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::H264, "h264", true, params)
+        NvDecoder::make_for(
+            CudaVideoCodec::H264,
+            "h264",
+            true,
+            Some(ConfigKind::Avc),
+            params,
+        )
     }
 }
 
@@ -690,7 +713,13 @@ pub struct HevcNvDecoder;
 
 impl HevcNvDecoder {
     pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::Hevc, "hevc", true, params)
+        NvDecoder::make_for(
+            CudaVideoCodec::Hevc,
+            "hevc",
+            true,
+            Some(ConfigKind::Hevc),
+            params,
+        )
     }
 }
 
@@ -702,7 +731,7 @@ pub struct Av1NvDecoder;
 
 impl Av1NvDecoder {
     pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
-        NvDecoder::make_for(CudaVideoCodec::Av1, "av1", false, params)
+        NvDecoder::make_for(CudaVideoCodec::Av1, "av1", false, None, params)
     }
 }
 
@@ -746,7 +775,7 @@ impl Vp9NvDecoder {
                 ));
             }
         }
-        NvDecoder::make_for(CudaVideoCodec::Vp9, "vp9", false, params)
+        NvDecoder::make_for(CudaVideoCodec::Vp9, "vp9", false, None, params)
     }
 }
 
@@ -781,7 +810,7 @@ impl Mpeg2NvDecoder {
                 ));
             }
         }
-        NvDecoder::make_for(CudaVideoCodec::Mpeg2, "mpeg2video", false, params)
+        NvDecoder::make_for(CudaVideoCodec::Mpeg2, "mpeg2video", false, None, params)
     }
 }
 

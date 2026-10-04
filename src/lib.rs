@@ -65,6 +65,9 @@ pub mod sys;
 pub mod decoder;
 
 #[cfg(feature = "registry")]
+mod framing;
+
+#[cfg(feature = "registry")]
 pub mod encoder;
 
 #[cfg(feature = "registry")]
