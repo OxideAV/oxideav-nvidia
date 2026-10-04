@@ -38,7 +38,7 @@ use oxideav_core::{
 use crate::device::{Cuda, CudaContext, CudaDevice, NvError};
 use crate::framing::{ConfigKind, NalFraming};
 use crate::sys::{
-    self, CUvideodecoder, CUvideoparser, CudaVideoCodec, CUDA_SUCCESS,
+    self, CUcontext, CUvideodecoder, CUvideoparser, CudaVideoCodec, CUDA_SUCCESS,
     CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID, CUDA_VIDEO_DEINTERLACE_WEAVE,
     CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO,
     CUVIDPARSERPARAMS, CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET,
@@ -506,6 +506,11 @@ impl NvDecoder {
 
         let _ = dev; // device handle is just an ordinal; nothing to keep alive
 
+        // cuCtxCreate left the context current on this thread; every
+        // later call binds it explicitly (see `bind_context`), so
+        // don't leave it on the constructing thread's stack.
+        ContextGuard::pop_creation();
+
         Ok(Box::new(Self {
             codec_id: CodecId::new(codec_id),
             _cuda: cuda,
@@ -520,6 +525,17 @@ impl NvDecoder {
         }))
     }
 
+    /// Make the decoder's CUDA context current on the calling thread
+    /// for the guard's lifetime. The parser callbacks (which create
+    /// the `CUvideodecoder` and map surfaces) run synchronously inside
+    /// `cuvidParseVideoData`, on whatever thread the caller is: a
+    /// pipeline that builds the decoder on one thread and feeds it on
+    /// a worker otherwise fails every packet with
+    /// `cuvidCreateDecoder failed: CUresult 201` (no current context).
+    fn bind_context(&self) -> ContextGuard {
+        ContextGuard::push(self._ctx.as_ref().map(CudaContext::raw))
+    }
+
     fn pull_frames(&mut self) {
         if let Ok(mut g) = self.state.lock() {
             while let Some(f) = g.frames.pop_front() {
@@ -531,6 +547,7 @@ impl NvDecoder {
 
 impl Drop for NvDecoder {
     fn drop(&mut self) {
+        let _bound = self.bind_context();
         if let Ok(vt) = sys::vtable() {
             if !self.parser.is_null() {
                 unsafe {
@@ -559,6 +576,7 @@ impl oxideav_core::Decoder for NvDecoder {
 
     fn send_packet(&mut self, packet: &Packet) -> Result<()> {
         self.flushed = false;
+        let _bound = self.bind_context();
 
         // Surface any error that fired in a previous callback.
         if let Some(e) = self.state.lock().ok().and_then(|g| g.error.clone()) {
@@ -627,6 +645,7 @@ impl oxideav_core::Decoder for NvDecoder {
     }
 
     fn flush(&mut self) -> Result<()> {
+        let _bound = self.bind_context();
         // Send an end-of-stream packet so the parser drains its
         // display queue.
         if let Ok(vt) = sys::vtable() {
@@ -647,6 +666,45 @@ impl oxideav_core::Decoder for NvDecoder {
 }
 
 // ─────────────────────────── helpers ──────────────────────────────────────────
+
+/// Pushes a CUDA context on the calling thread's context stack and pops
+/// it again on drop.
+struct ContextGuard {
+    pushed: bool,
+}
+
+impl ContextGuard {
+    fn push(ctx: Option<CUcontext>) -> Self {
+        let pushed = match (ctx, sys::vtable()) {
+            (Some(ctx), Ok(vt)) if !ctx.is_null() => {
+                // SAFETY: `ctx` is a live context owned by the decoder.
+                unsafe { (vt.cu_ctx_push_current_v2)(ctx) == CUDA_SUCCESS }
+            }
+            _ => false,
+        };
+        Self { pushed }
+    }
+
+    /// Pop the context `cuCtxCreate` made current at construction.
+    fn pop_creation() {
+        drop(Self { pushed: true });
+    }
+}
+
+impl Drop for ContextGuard {
+    fn drop(&mut self) {
+        if !self.pushed {
+            return;
+        }
+        if let Ok(vt) = sys::vtable() {
+            let mut out: CUcontext = std::ptr::null_mut();
+            // SAFETY: pops the entry this guard pushed.
+            unsafe {
+                let _ = (vt.cu_ctx_pop_current_v2)(&mut out);
+            }
+        }
+    }
+}
 
 /// Build a cuvidParser configured for `codec` with our three callbacks
 /// wired to `state`.
