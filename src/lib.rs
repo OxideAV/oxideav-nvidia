@@ -8,7 +8,7 @@
 //! * `libnvcuvid.so.1` — NVDEC (hardware video decode).
 //! * `libnvidia-encode.so.1` — NVENC (hardware video encode).
 //!
-//! All three are opened via [`libloading`] on first use, so:
+//! All three are opened via [`dlsym`] on first use, so:
 //!
 //! * Linux builds have **no compile-time link dependency** on the
 //!   CUDA SDK; if any library can't be loaded, the registered

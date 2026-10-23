@@ -8,7 +8,7 @@ Linux NVIDIA NVDEC + NVENC hardware decode/encode bridge for the [oxideav](https
 
 NVIDIA's NVENC + NVDEC engines deliver the highest absolute throughput on Linux for H.264 / HEVC / AV1 encode + decode on NVIDIA hardware. The toolchain is **proprietary**: bytes flow in and out of the GPU through the CUDA driver API. This crate is the bridge from oxideav's pipeline traits to that toolchain.
 
-It is a **thin runtime-loaded bridge** — no compile-time link dependency on the CUDA SDK, no `*-sys` crate. The libraries are opened via [`libloading`] on first use.
+It is a **thin runtime-loaded bridge** — no compile-time link dependency on the CUDA SDK, no `*-sys` crate. The libraries are opened via [`dlsym`] on first use.
 
 | Library                  | Role                                                              |
 |--------------------------|-------------------------------------------------------------------|

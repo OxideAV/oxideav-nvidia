@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - edition 2024, MSRV 1.95.
+- Runtime loading of `libcuda.so.1` / `libnvcuvid.so.1` /
+  `libnvidia-encode.so.1` moved from `libloading` to `dlsym`
+  (Karpelès Lab). Entry points resolve through typed
+  `Library::get::<FnT>` lookups; `Vtable` / `FrameworkSmoke` keep
+  their shape, their `Library` handles are now `dlsym::Library`.
 
 ### Added — Round 10
 

@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/OxideAV/oxideav-nvidia"
 homepage = "https://github.com/OxideAV/oxideav-nvidia"
 authors = ["Mark Karpeles"]
-description = "Linux NVIDIA NVDEC/NVENC hardware decode/encode bridge for the oxideav framework — runtime-loaded via libloading, no compile-time CUDA SDK dep"
+description = "Linux NVIDIA NVDEC/NVENC hardware decode/encode bridge for the oxideav framework — runtime-loaded via dlsym, no compile-time CUDA SDK dep"
 readme = "README.md"
 keywords = ["nvidia", "nvdec", "nvenc", "cuda", "oxideav"]
 categories = ["multimedia::encoding", "multimedia::video", "hardware-support"]
@@ -18,11 +18,11 @@ categories = ["multimedia::encoding", "multimedia::video", "hardware-support"]
 # `default-features = false` and avoid the framework dependency tree.
 oxideav-core = { version = "0.1", optional = true }
 
-# libloading is only pulled on Linux targets — every non-linux build
+# dlsym is only pulled on Linux targets — every non-linux build
 # ships a stub `register()` that's a no-op (the entire crate body is
 # `#![cfg(target_os = "linux")]`).
 [target.'cfg(target_os = "linux")'.dependencies]
-libloading = "0.8"
+dlsym = "0.0.2"
 # Distributed-slice auto-registration into `oxideav_core::REGISTRARS`
 # via the `oxideav_core::register!` macro. Linux-only because the
 # entire crate body is `#![cfg(target_os = "linux")]`. Optional +

@@ -19,7 +19,7 @@
 //! conservative and treats any missing library as "framework not
 //! available". Round 2 may relax this to per-engine availability.
 
-use libloading::Library;
+use dlsym::Library;
 use std::ffi::c_void;
 use std::os::raw::c_char;
 use std::sync::OnceLock;
@@ -447,7 +447,7 @@ pub type FnCuCtxPopCurrentV2 = unsafe extern "C" fn(ctx_out: *mut CUcontext) -> 
 // The full NVDEC structures (`CUVIDDECODECREATEINFO`, `CUVIDPICPARAMS`,
 // `CUVIDPROCPARAMS`) are large and codec-specific; Round 2 will model
 // them. For Round 1 the function pointer types use opaque pointers so
-// the dlsym + transmute chain is verified without locking us into a
+// the dlsym chain is verified without locking us into a
 // particular struct layout.
 pub type FnCuvidCreateDecoder =
     unsafe extern "C" fn(decoder: *mut CUvideodecoder, create_info: *mut c_void) -> CUresult;
@@ -1250,12 +1250,15 @@ fn load_vtable() -> Result<Vtable, String> {
     let libnvenc = open("libnvidia-encode.so.1")?;
 
     macro_rules! sym {
-        ($lib:expr, $name:expr, $ty:ty) => {{
-            let s: libloading::Symbol<$ty> = unsafe {
-                $lib.get(concat!($name, "\0").as_bytes())
+        ($lib:expr, $name:literal, $ty:ty) => {{
+            // SAFETY: `$ty` is the vendor-header signature of `$name`, and
+            // the detached pointer is stored in the `Vtable` that owns
+            // `$lib`, so it can never outlive the mapping.
+            unsafe {
+                $lib.get::<$ty>($name)
                     .map_err(|e| format!("dlsym {}: {}", $name, e))?
-            };
-            *s
+                    .into_inner()
+            }
         }};
     }
 
@@ -1311,7 +1314,7 @@ fn load_vtable() -> Result<Vtable, String> {
 fn open(path: &str) -> Result<Library, String> {
     // SAFETY: dlopen on a soname with no init callbacks; equivalent to
     // a normal program startup load.
-    unsafe { Library::new(path) }.map_err(|e| format!("dlopen {path}: {e}"))
+    unsafe { Library::open(path) }.map_err(|e| format!("dlopen {path}: {e}"))
 }
 
 #[cfg(test)]
@@ -1331,18 +1334,19 @@ mod tests {
                 return;
             }
         };
-        let _: libloading::Symbol<unsafe extern "C" fn()> =
-            unsafe { fw.libcuda.get(b"cuInit\0").expect("cuInit symbol") };
-        let _: libloading::Symbol<unsafe extern "C" fn()> = unsafe {
+        // SAFETY: the requested types are the vendor-header signatures;
+        // the symbols are only resolved, never called.
+        unsafe {
+            fw.libcuda
+                .get::<FnCuInit>(c"cuInit")
+                .expect("cuInit symbol");
             fw.libnvcuvid
-                .get(b"cuvidCreateDecoder\0")
-                .expect("cuvidCreateDecoder symbol")
-        };
-        let _: libloading::Symbol<unsafe extern "C" fn()> = unsafe {
+                .get::<FnCuvidCreateDecoder>(c"cuvidCreateDecoder")
+                .expect("cuvidCreateDecoder symbol");
             fw.libnvenc
-                .get(b"NvEncodeAPICreateInstance\0")
-                .expect("NvEncodeAPICreateInstance symbol")
-        };
+                .get::<FnNvEncodeApiCreateInstance>(c"NvEncodeAPICreateInstance")
+                .expect("NvEncodeAPICreateInstance symbol");
+        }
     }
 
     /// Verify the vtable resolves all symbols. Skip-friendly when
