@@ -42,12 +42,11 @@ use oxideav_core::engine::{HwCodecCaps, HwDeviceInfo};
 use crate::device::{Cuda, CudaContext, CudaDevice};
 use crate::nvdec::nvdec_caps;
 use crate::sys::{
-    self, CudaVideoCodec, Guid, NvEncCapsParam, NvEncOpenEncodeSessionExParams,
-    NvEncodeApiFunctionList, CUDA_VIDEO_CHROMA_FORMAT_420, NVENCAPI_VERSION,
-    NV_ENCODE_API_FUNCTION_LIST_VER, NV_ENC_CAPS_HEIGHT_MAX, NV_ENC_CAPS_PARAM_VER,
-    NV_ENC_CAPS_SUPPORT_10BIT_ENCODE, NV_ENC_CAPS_WIDTH_MAX, NV_ENC_CODEC_AV1_GUID,
-    NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID, NV_ENC_DEVICE_TYPE_CUDA,
-    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_SUCCESS,
+    self, CUDA_VIDEO_CHROMA_FORMAT_420, CudaVideoCodec, Guid, NV_ENC_CAPS_HEIGHT_MAX,
+    NV_ENC_CAPS_PARAM_VER, NV_ENC_CAPS_SUPPORT_10BIT_ENCODE, NV_ENC_CAPS_WIDTH_MAX,
+    NV_ENC_CODEC_AV1_GUID, NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID, NV_ENC_DEVICE_TYPE_CUDA,
+    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_SUCCESS, NV_ENCODE_API_FUNCTION_LIST_VER,
+    NVENCAPI_VERSION, NvEncCapsParam, NvEncOpenEncodeSessionExParams, NvEncodeApiFunctionList,
 };
 
 // ─────────────────────────── codec table ────────────────────────────────────
@@ -183,31 +182,31 @@ fn probe_decode(codec: CudaVideoCodec, id: &str) -> HwCodecCaps {
         extra: Vec::new(),
     };
 
-    if let Ok(c) = nvdec_caps(codec, CUDA_VIDEO_CHROMA_FORMAT_420, 8) {
-        if c.is_supported != 0 {
-            caps.decode = true;
-            if c.max_width > 0 {
-                caps.max_width = Some(c.max_width);
-            }
-            if c.max_height > 0 {
-                caps.max_height = Some(c.max_height);
-            }
-            caps.max_bit_depth = Some(8);
-            if c.max_mb_count > 0 {
-                caps.extra
-                    .push(("max_mb_count".into(), c.max_mb_count.to_string()));
-            }
-            if c.num_nvdecs > 0 {
-                caps.extra
-                    .push(("num_nvdecs".into(), c.num_nvdecs.to_string()));
-            }
-            // Probe 10-bit support too — most modern engines support
-            // it for HEVC / AV1 / VP9, none for H.264 baseline.
-            if let Ok(c10) = nvdec_caps(codec, CUDA_VIDEO_CHROMA_FORMAT_420, 10) {
-                if c10.is_supported != 0 {
-                    caps.max_bit_depth = Some(10);
-                }
-            }
+    if let Ok(c) = nvdec_caps(codec, CUDA_VIDEO_CHROMA_FORMAT_420, 8)
+        && c.is_supported != 0
+    {
+        caps.decode = true;
+        if c.max_width > 0 {
+            caps.max_width = Some(c.max_width);
+        }
+        if c.max_height > 0 {
+            caps.max_height = Some(c.max_height);
+        }
+        caps.max_bit_depth = Some(8);
+        if c.max_mb_count > 0 {
+            caps.extra
+                .push(("max_mb_count".into(), c.max_mb_count.to_string()));
+        }
+        if c.num_nvdecs > 0 {
+            caps.extra
+                .push(("num_nvdecs".into(), c.num_nvdecs.to_string()));
+        }
+        // Probe 10-bit support too — most modern engines support
+        // it for HEVC / AV1 / VP9, none for H.264 baseline.
+        if let Ok(c10) = nvdec_caps(codec, CUDA_VIDEO_CHROMA_FORMAT_420, 10)
+            && c10.is_supported != 0
+        {
+            caps.max_bit_depth = Some(10);
         }
     }
     caps

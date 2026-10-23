@@ -36,7 +36,7 @@
 //! contract.
 
 use std::collections::VecDeque;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::sync::Mutex;
 
 use oxideav_core::{
@@ -46,17 +46,16 @@ use oxideav_core::{
 
 use crate::device::{Cuda, CudaContext, NvError};
 use crate::sys::{
-    self, Guid, NvEncConfig, NvEncCreateBitstreamBuffer, NvEncCreateInputBuffer,
-    NvEncInitializeParams, NvEncLockBitstream, NvEncLockInputBuffer,
-    NvEncOpenEncodeSessionExParams, NvEncPicParams, NvEncPresetConfig, NvEncodeApiFunctionList,
-    NVENCAPI_VERSION, NV_ENCODE_API_FUNCTION_LIST_VER, NV_ENC_BUFFER_FORMAT_NV12,
-    NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID, NV_ENC_CONFIG_VER,
-    NV_ENC_CREATE_BITSTREAM_BUFFER_VER, NV_ENC_CREATE_INPUT_BUFFER_VER, NV_ENC_DEVICE_TYPE_CUDA,
-    NV_ENC_H264_PROFILE_HIGH_GUID, NV_ENC_HEVC_PROFILE_MAIN_GUID, NV_ENC_INITIALIZE_PARAMS_VER,
-    NV_ENC_LOCK_BITSTREAM_VER, NV_ENC_LOCK_INPUT_BUFFER_VER,
+    self, Guid, NV_ENC_BUFFER_FORMAT_NV12, NV_ENC_CODEC_H264_GUID, NV_ENC_CODEC_HEVC_GUID,
+    NV_ENC_CONFIG_VER, NV_ENC_CREATE_BITSTREAM_BUFFER_VER, NV_ENC_CREATE_INPUT_BUFFER_VER,
+    NV_ENC_DEVICE_TYPE_CUDA, NV_ENC_H264_PROFILE_HIGH_GUID, NV_ENC_HEVC_PROFILE_MAIN_GUID,
+    NV_ENC_INITIALIZE_PARAMS_VER, NV_ENC_LOCK_BITSTREAM_VER, NV_ENC_LOCK_INPUT_BUFFER_VER,
     NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER, NV_ENC_PIC_PARAMS_VER, NV_ENC_PIC_STRUCT_FRAME,
     NV_ENC_PRESET_CONFIG_VER, NV_ENC_PRESET_P4_GUID, NV_ENC_SUCCESS,
-    NV_ENC_TUNING_INFO_LOW_LATENCY,
+    NV_ENC_TUNING_INFO_LOW_LATENCY, NV_ENCODE_API_FUNCTION_LIST_VER, NVENCAPI_VERSION, NvEncConfig,
+    NvEncCreateBitstreamBuffer, NvEncCreateInputBuffer, NvEncInitializeParams, NvEncLockBitstream,
+    NvEncLockInputBuffer, NvEncOpenEncodeSessionExParams, NvEncPicParams, NvEncPresetConfig,
+    NvEncodeApiFunctionList,
 };
 
 // ─────────────────────────── shared NVENC function table ──────────────────────
@@ -591,10 +590,10 @@ impl Encoder for NvEncoder {
     }
 
     fn receive_packet(&mut self) -> Result<Packet> {
-        if let Ok(mut q) = self.output_queue.lock() {
-            if let Some(pkt) = q.pop_front() {
-                return Ok(pkt);
-            }
+        if let Ok(mut q) = self.output_queue.lock()
+            && let Some(pkt) = q.pop_front()
+        {
+            return Ok(pkt);
         }
         Err(if self.flushed {
             Error::Eof

@@ -21,7 +21,7 @@
 
 use oxideav_core::{CodecId, CodecParameters};
 use oxideav_nvidia::{
-    nvdec_caps, sys::CUDA_VIDEO_CHROMA_FORMAT_420, Cuda, CudaVideoCodec, Mpeg2NvDecoder,
+    Cuda, CudaVideoCodec, Mpeg2NvDecoder, nvdec_caps, sys::CUDA_VIDEO_CHROMA_FORMAT_420,
 };
 
 fn cuda_available() -> bool {

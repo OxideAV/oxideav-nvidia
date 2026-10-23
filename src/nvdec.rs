@@ -15,7 +15,7 @@
 //! ```
 
 use crate::device::NvError;
-use crate::sys::{self, CudaVideoCodec, CUDA_SUCCESS, CUVIDDECODECAPS};
+use crate::sys::{self, CUDA_SUCCESS, CUVIDDECODECAPS, CudaVideoCodec};
 
 /// Public-facing snapshot of an NVDEC capability query result.
 ///

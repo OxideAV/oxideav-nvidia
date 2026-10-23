@@ -22,7 +22,7 @@
 
 use oxideav_core::{CodecId, CodecParameters};
 use oxideav_nvidia::{
-    nvdec_caps, sys::CUDA_VIDEO_CHROMA_FORMAT_420, Cuda, CudaVideoCodec, Vp9NvDecoder,
+    Cuda, CudaVideoCodec, Vp9NvDecoder, nvdec_caps, sys::CUDA_VIDEO_CHROMA_FORMAT_420,
 };
 
 fn cuda_available() -> bool {
@@ -85,7 +85,9 @@ fn vp9_make_returns_unsupported_with_no_gpu() {
 #[test]
 fn vp9_make_constructs_decoder_on_supported_host() {
     if !nvdec_vp9_available() {
-        eprintln!("vp9_make_constructs_decoder_on_supported_host: skipping — NVDEC VP9 not supported on this host");
+        eprintln!(
+            "vp9_make_constructs_decoder_on_supported_host: skipping — NVDEC VP9 not supported on this host"
+        );
         return;
     }
     let params = CodecParameters::video(CodecId::new("vp9"));

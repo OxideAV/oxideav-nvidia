@@ -38,11 +38,11 @@ use oxideav_core::{
 use crate::device::{Cuda, CudaContext, CudaDevice, NvError};
 use crate::framing::{ConfigKind, NalFraming};
 use crate::sys::{
-    self, CUcontext, CUvideodecoder, CUvideoparser, CudaVideoCodec, CUDA_SUCCESS,
-    CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID, CUDA_VIDEO_DEINTERLACE_WEAVE,
-    CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO,
-    CUVIDPARSERPARAMS, CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET,
-    CUVID_PKT_ENDOFSTREAM, CUVID_PKT_TIMESTAMP,
+    self, CUDA_SUCCESS, CUDA_VIDEO_CHROMA_FORMAT_420, CUDA_VIDEO_CREATE_PREFER_CUVID,
+    CUDA_VIDEO_DEINTERLACE_WEAVE, CUDA_VIDEO_SURFACE_FORMAT_NV12, CUVID_PKT_ENDOFSTREAM,
+    CUVID_PKT_TIMESTAMP, CUVIDDECODECREATEINFO, CUVIDEOFORMAT, CUVIDPARSERDISPINFO,
+    CUVIDPARSERPARAMS, CUVIDPICPARAMS, CUVIDPROCPARAMS, CUVIDSOURCEDATAPACKET, CUcontext,
+    CUvideodecoder, CUvideoparser, CudaVideoCodec,
 };
 
 /// Number of decode surfaces we ask NVDEC to keep around. The parser
@@ -563,13 +563,13 @@ impl Drop for NvDecoder {
                 self.parser = std::ptr::null_mut();
             }
             // Destroy decoder if the sequence callback created one.
-            if let Ok(mut g) = self.state.lock() {
-                if !g.decoder.is_null() {
-                    unsafe {
-                        let _ = (vt.cuvid_destroy_decoder)(g.decoder);
-                    }
-                    g.decoder = std::ptr::null_mut();
+            if let Ok(mut g) = self.state.lock()
+                && !g.decoder.is_null()
+            {
+                unsafe {
+                    let _ = (vt.cuvid_destroy_decoder)(g.decoder);
                 }
+                g.decoder = std::ptr::null_mut();
             }
         }
         // CudaContext drop runs after this.
@@ -833,12 +833,11 @@ impl Vp9NvDecoder {
         // callback with an opaque CUresult.
         if let Ok(caps) =
             crate::nvdec::nvdec_caps(CudaVideoCodec::Vp9, CUDA_VIDEO_CHROMA_FORMAT_420, 8)
+            && caps.is_supported == 0
         {
-            if caps.is_supported == 0 {
-                return Err(Error::unsupported(
-                    "nvidia: NVDEC VP9 / 4:2:0 / 8-bit unsupported on this device",
-                ));
-            }
+            return Err(Error::unsupported(
+                "nvidia: NVDEC VP9 / 4:2:0 / 8-bit unsupported on this device",
+            ));
         }
         NvDecoder::make_for(CudaVideoCodec::Vp9, "vp9", false, None, params)
     }
@@ -868,12 +867,11 @@ impl Mpeg2NvDecoder {
     pub fn make(params: &CodecParameters) -> Result<Box<dyn oxideav_core::Decoder>> {
         if let Ok(caps) =
             crate::nvdec::nvdec_caps(CudaVideoCodec::Mpeg2, CUDA_VIDEO_CHROMA_FORMAT_420, 8)
+            && caps.is_supported == 0
         {
-            if caps.is_supported == 0 {
-                return Err(Error::unsupported(
-                    "nvidia: NVDEC MPEG-2 / 4:2:0 / 8-bit unsupported on this device",
-                ));
-            }
+            return Err(Error::unsupported(
+                "nvidia: NVDEC MPEG-2 / 4:2:0 / 8-bit unsupported on this device",
+            ));
         }
         NvDecoder::make_for(CudaVideoCodec::Mpeg2, "mpeg2video", false, None, params)
     }
