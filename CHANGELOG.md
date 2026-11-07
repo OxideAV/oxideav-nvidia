@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- API hygiene: `#[non_exhaustive]` on `CudaVideoCodec`, `NvError` and
+  `NvdecCaps` (all three are produced by the crate; matching on
+  `CudaVideoCodec` now needs a wildcard arm). No behaviour change.
 - edition 2024, MSRV 1.95.
 - Runtime loading of `libcuda.so.1` / `libnvcuvid.so.1` /
   `libnvidia-encode.so.1` moved from `libloading` to `dlsym`

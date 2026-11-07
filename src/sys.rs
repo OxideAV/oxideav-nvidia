@@ -93,6 +93,7 @@ pub const CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR: i32 = 76;
 /// (`<cuviddec.h>`). Numeric values are part of the public ABI.
 #[repr(i32)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum CudaVideoCodec {
     Mpeg1 = 0,
     Mpeg2 = 1,

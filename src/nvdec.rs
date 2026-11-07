@@ -22,6 +22,7 @@ use crate::sys::{self, CUDA_SUCCESS, CUVIDDECODECAPS, CudaVideoCodec};
 /// Mirrors the *out* fields of `CUVIDDECODECAPS` plus the inputs we
 /// echoed back, with the driver's reserved fields stripped.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct NvdecCaps {
     /// Echo of the queried codec.
     pub codec: i32,

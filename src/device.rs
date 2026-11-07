@@ -36,6 +36,7 @@ use crate::sys::{
 /// Wraps a `CUresult` plus a human-readable message obtained from
 /// `cuGetErrorString` when available.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct NvError {
     pub code: CUresult,
     pub message: String,
